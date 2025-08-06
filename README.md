@@ -1,0 +1,1 @@
+# /mnt/dietpi-userdata/homeassistant/
