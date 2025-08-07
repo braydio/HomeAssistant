@@ -1,0 +1,62 @@
+2025-08-06 12:38:40.852 WARNING (SyncWorker_0) [homeassistant.loader] We found a custom integration hacs which has not been tested by Home Assistant. This component might cause stability problems, be sure to disable it if you experience issues with Home Assistant
+2025-08-06 12:38:46.356 ERROR (MainThread) [homeassistant.helpers.config_validation] The stt integration does not support any configuration parameters, got [{'platform': 'wyoming', 'host': '192.168.1.239', 'port': 10300, 'protocol': 'tcp'}]. Please remove the configuration parameters from your configuration.
+2025-08-06 12:38:52.033 ERROR (ImportExecutor_0) [homeassistant.components.camera.img_util] Error loading libturbojpeg; Camera snapshot performance will be sub-optimal
+Traceback (most recent call last):
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/site-packages/homeassistant/components/camera/img_util.py", line 93, in __init__
+    TurboJPEGSingleton.__instance = TurboJPEG()
+                                    ~~~~~~~~~^^
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/site-packages/turbojpeg.py", line 301, in __init__
+    self.__find_turbojpeg() if lib_path is None else lib_path)
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/site-packages/turbojpeg.py", line 974, in __find_turbojpeg
+    raise RuntimeError(
+    ...<2 lines>...
+        'e.g. jpeg = TurboJPEG(lib_path)')
+RuntimeError: Unable to locate turbojpeg library automatically. You may specify the turbojpeg library path manually.
+e.g. jpeg = TurboJPEG(lib_path)
+2025-08-06 12:38:56.995 WARNING (MainThread) [homeassistant.util.loop] Detected blocking call to import_module with args ('encodings.ascii',) inside the event loop by integration 'alexa_devices' at homeassistant/components/alexa_devices/coordinator.py, line 53: await self.api.login_mode_stored_data() (offender: /home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/site-packages/charset_normalizer/utils.py, line 263: importlib.import_module("encodings.{}".format(name)).IncrementalDecoder,), please create a bug report at https://github.com/home-assistant/core/issues?q=is%3Aopen+is%3Aissue+label%3A%22integration%3A+alexa_devices%22
+For developers, please see https://developers.home-assistant.io/docs/asyncio_blocking_operations/#import_module
+Traceback (most recent call last):
+  File "/home/homeassistant/.pyenv/versions/3.13.5/bin/hass", line 8, in <module>
+    sys.exit(main())
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/site-packages/homeassistant/__main__.py", line 209, in main
+    exit_code = runner.run(runtime_conf)
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/site-packages/homeassistant/runner.py", line 154, in run
+    return loop.run_until_complete(setup_and_run_hass(runtime_config))
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/asyncio/base_events.py", line 712, in run_until_complete
+    self.run_forever()
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/asyncio/base_events.py", line 683, in run_forever
+    self._run_once()
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/asyncio/base_events.py", line 2042, in _run_once
+    handle._run()
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/asyncio/events.py", line 89, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/site-packages/homeassistant/config_entries.py", line 894, in async_setup_locked
+    await self.async_setup(hass, integration=integration)
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/site-packages/homeassistant/config_entries.py", line 660, in async_setup
+    await self.__async_setup_with_context(hass, integration)
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/site-packages/homeassistant/config_entries.py", line 749, in __async_setup_with_context
+    result = await component.async_setup_entry(hass, self)
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/site-packages/homeassistant/components/alexa_devices/__init__.py", line 21, in async_setup_entry
+    await coordinator.async_config_entry_first_refresh()
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/site-packages/homeassistant/helpers/update_coordinator.py", line 309, in async_config_entry_first_refresh
+    await self._async_refresh(
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/site-packages/homeassistant/helpers/update_coordinator.py", line 382, in _async_refresh
+    self.data = await self._async_update_data()
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/site-packages/homeassistant/components/alexa_devices/coordinator.py", line 53, in _async_update_data
+    await self.api.login_mode_stored_data()
+
+2025-08-06 12:38:57.838 WARNING (MainThread) [aioamazondevices] Sensors data not available [/api/phoenix error 'Miscellaneous Persistent Warning'], skipping
+2025-08-06 12:39:02.078 WARNING (MainThread) [aioamazondevices] Unknown device type 'AN630UQPG2CA4' for Brayden's TV: please read https://github.com/chemelli74/aioamazondevices?tab=readme-ov-file#unknown-device-type
+2025-08-06 12:39:02.079 WARNING (MainThread) [aioamazondevices] Unknown device type 'AN630UQPG2CA4' for Brayden's TV: please read https://github.com/chemelli74/aioamazondevices?tab=readme-ov-file#unknown-device-type
+2025-08-06 12:39:02.093 WARNING (MainThread) [aioamazondevices] Unknown device type 'AN630UQPG2CA4' for Brayden's TV: please read https://github.com/chemelli74/aioamazondevices?tab=readme-ov-file#unknown-device-type
+2025-08-06 12:39:02.093 WARNING (MainThread) [aioamazondevices] Unknown device type 'AN630UQPG2CA4' for Brayden's TV: please read https://github.com/chemelli74/aioamazondevices?tab=readme-ov-file#unknown-device-type
+2025-08-06 12:39:02.102 WARNING (MainThread) [aioamazondevices] Unknown device type 'AN630UQPG2CA4' for Brayden's TV: please read https://github.com/chemelli74/aioamazondevices?tab=readme-ov-file#unknown-device-type
+2025-08-06 12:39:02.230 ERROR (MainThread) [homeassistant.components.weather] Platform met does not generate unique IDs. ID home already exists - ignoring weather.forecast_home
+2025-08-06 12:39:02.236 ERROR (MainThread) [homeassistant.components.stt.legacy] Error setting up platform: wyoming
+Traceback (most recent call last):
+  File "/home/homeassistant/.pyenv/versions/3.13.5/lib/python3.13/site-packages/homeassistant/components/stt/legacy.py", line 82, in async_setup_platform
+    provider = await platform.async_get_engine(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'homeassistant.components.wyoming.stt' has no attribute 'async_get_engine'
+2025-08-06 12:39:13.081 ERROR (SyncWorker_0) [aiodhcpwatcher] Cannot watch for dhcp packets without a functional packet filter: libpcap is not available. Cannot compile filter !

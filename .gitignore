@@ -1,0 +1,20 @@
+# Planned .gitignore structure:
+# Ignore compiled Python files
+__pycache__/
+*.py[cod]
+
+# Ignore virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Ignore Home Assistant generated files
+home-assistant.log
+home-assistant_v2.db
+*.db
+.storage/
+deps/
+
+# Ignore .local files
+*.local
