@@ -1,0 +1,22 @@
+Directory Tree Mapping
+[33m/home/braydenchaffee/home-assistant-git[0m
+├── automations.yaml
+├── blueprints
+│   ├── automation
+│   └── script
+├── configuration.yaml
+├── custom_components
+│   └── hacs
+├── home-assistant.log
+├── home-assistant.log.1
+├── home-assistant.log.fault
+├── home-assistant_v2.db
+├── home-assistant_v2.db-shm
+├── home-assistant_v2.db-wal
+├── nocat
+├── nocat.txt
+├── README.md
+├── scenes.yaml
+├── scripts.yaml
+├── secrets.yaml
+└── tts
