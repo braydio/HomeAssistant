@@ -1,0 +1,6 @@
+# Example integration: enable the time and date sensor
+sensor:
+  - platform: time_date
+    display_options:
+      - "time"
+      - "date"
