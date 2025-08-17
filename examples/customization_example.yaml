@@ -1,0 +1,6 @@
+# Example customization: rename an entity and set an icon
+homeassistant:
+  customize:
+    sensor.temperature:
+      friendly_name: "Indoor Temperature"
+      icon: mdi:thermometer
