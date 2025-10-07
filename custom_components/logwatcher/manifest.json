@@ -1,0 +1,8 @@
+{
+  "domain": "logwatcher",
+  "name": "Log Watcher",
+  "documentation": "https://example.com/docs/logwatcher",
+  "version": "0.1.0",
+  "integration_type": "hub",
+  "requirements": []
+}
