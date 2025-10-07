@@ -104,9 +104,12 @@ class DukeEnergyCoordinator(DataUpdateCoordinator[None]):
                 consumption_sum = 0.0
                 last_stats_time = None
             else:
+                last_stat_start = cast(
+                    datetime, last_stat[consumption_statistic_id][0]["start"]
+                )
                 usage = await self._async_get_energy_usage(
                     meter,
-                    last_stat[consumption_statistic_id][0]["start"],
+                    dt_util.as_timestamp(last_stat_start),
                 )
                 if not usage:
                     _LOGGER.debug("No recent usage data. Skipping update")
@@ -122,12 +125,15 @@ class DukeEnergyCoordinator(DataUpdateCoordinator[None]):
                     {"sum"},
                 )
                 consumption_sum = cast(float, stats[consumption_statistic_id][0]["sum"])
-                last_stats_time = stats[consumption_statistic_id][0]["start"]
+                last_stats_time = dt_util.as_timestamp(
+                    stats[consumption_statistic_id][0]["start"]
+                )
 
             consumption_statistics: list[StatisticData] = []
 
             for start, data in usage.items():
-                if last_stats_time is not None and start.timestamp() <= last_stats_time:
+                start_timestamp = dt_util.as_timestamp(start)
+                if last_stats_time is not None and start_timestamp <= last_stats_time:
                     continue
                 consumption_sum += data["energy"]
 
