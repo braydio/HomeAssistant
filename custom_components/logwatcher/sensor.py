@@ -43,6 +43,7 @@ PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend(
 )
 
 
+
 @dataclass
 class LogWatcherEntityDescription(SensorEntityDescription):
     """Metadata describing a Log Watcher sensor."""

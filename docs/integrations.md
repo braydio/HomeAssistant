@@ -28,3 +28,5 @@ local voice assistant. Below is an overview of the configured integrations.
 
 - **HACS** – the Home Assistant Community Store is available under
   `custom_components/hacs` for managing community integrations.
+- **Duke Energy** – installs the official Duke Energy integration from
+  `homeassistant/core` to import utility usage statistics.
