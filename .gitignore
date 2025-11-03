@@ -1,0 +1,72 @@
+# Home Assistant runtime/state
+/.storage/
+/.cloud/
+/deps/
+/tts/
+/tmp/
+/tts_cache/
+/.HA_VERSION
+home-assistant_v2.db
+home-assistant_v2.db-shm
+home-assistant_v2.db-wal
+home-assistant.log
+home-assistant.log.*
+OZW_Log.txt
+
+# Secrets (do not commit secrets)
+secrets.yaml
+secrets/*.yaml
+
+# Python caches and environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+ENV/
+python_env/
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Node / frontend
+node_modules/
+*.map
+
+# Editors & OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.code-workspace
+
+# Backups and media
+backup/
+backups/
+media/
+share/
+
+# ESPHome build artifacts (keep YAML sources)
+esphome/.esphome/
+esphome/build/
+esphome/.pioenvs/
+esphome/*/.esphome/
+esphome/*/build/
+esphome/*/.pioenvs/
+esphome/*/*.bin
+esphome/*.bin
+
+# Zigbee2MQTT runtime data (keep configs)
+zigbee2mqtt/data/
+zigbee2mqtt/log/
+zigbee2mqtt/state/
+zigbee2mqtt/coordinator_backup*.json
+
