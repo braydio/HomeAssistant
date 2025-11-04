@@ -1,1 +1,36 @@
-[]
+- id: "pynance_daily_financial_report"
+  alias: "pyNance Daily Financial Report"
+  description: "Refresh pyNance data, summarize finances, and send a humorous report."
+  trigger:
+    - platform: time
+      at: "06:00:00"
+  action:
+    - alias: "Refresh pyNance accounts"
+      action: rest_command.pynance_refresh
+      response_variable: refresh_resp
+    - alias: "Update financial sensors"
+      action: homeassistant.update_entity
+      target:
+        entity_id:
+          - sensor.pynance_financial_summary
+    - alias: "Set summary variables"
+      variables:
+        summary: "{{ state_attr('sensor.pynance_financial_summary', 'data') }}"
+    - alias: "Generate report via OpenAI"
+      action: openai_conversation.generate_content
+      response_variable: report_resp
+      data:
+        config_entry: YOUR_OPENAI_CONFIG_ENTRY
+        prompt: >-
+          You are a witty financial adviser writing a daily report for Mister Brayden.
+          He earned ${{ summary.totalIncome }} and spent ${{ summary.totalExpenses }} in the last 30 days.
+          That leaves a net of ${{ summary.totalNet }}.
+          The highest spending day was {{ summary.highestExpenseDay.date }} (${{ summary.highestExpenseDay.amount }}), and the highest income day was {{ summary.highestIncomeDay.date }} (${{ summary.highestIncomeDay.amount }}).
+          Trend coefficient: {{ summary.trend }}. Volatility score: {{ summary.volatility }}.
+          Compose a short, humorous summary that congratulates him if net is positive or teases him if spending exceeds income. Suggest one small milestone to focus on next month.
+    - alias: "Notify Brayden"
+      action: notify.mobile_app_your_phone
+      data:
+        title: "Your Daily Finance Report"
+        message: "{{ report_resp.text }}"
+  mode: single
