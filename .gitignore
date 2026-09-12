@@ -1,72 +1,71 @@
-# Home Assistant runtime/state
-/.storage/
-/.cloud/
-/deps/
-/tts/
-/tmp/
-/tts_cache/
-/.HA_VERSION
+# =========================
+# Home Assistant secrets
+# =========================
+secrets.yaml
+
+# =========================
+# Home Assistant runtime/internal state
+# =========================
+.storage/
+.cloud/
+.cache/
+.ha_run.lock
+.HA_VERSION
+.shopping_list.json
+
+# =========================
+# Database files
+# =========================
 home-assistant_v2.db
 home-assistant_v2.db-shm
 home-assistant_v2.db-wal
+*.db
+*.db-shm
+*.db-wal
+
+# =========================
+# Logs
+# =========================
 home-assistant.log
 home-assistant.log.*
-OZW_Log.txt
+*.log
 
-# Secrets (do not commit secrets)
-secrets.yaml
-secrets/*.yaml
-
-# Python caches and environments
+# =========================
+# Generated/cache directories
+# =========================
+deps/
+tts/
 __pycache__/
-*.py[cod]
-.pytest_cache/
-.mypy_cache/
-.venv/
-venv/
-env/
-ENV/
-python_env/
-*.egg-info/
-.eggs/
-dist/
-build/
-pip-wheel-metadata/
-.coverage
-.coverage.*
-coverage.xml
-htmlcov/
+*.pyc
+*.pyo
 
-# Node / frontend
-node_modules/
-*.map
+# =========================
+# Home Assistant backups
+# =========================
+backups/
+*.tar
 
-# Editors & OS
+# =========================
+# Editor / OS junk
+# =========================
+.vscode/
+.idea/
 .DS_Store
 Thumbs.db
-.idea/
-.vscode/
-*.code-workspace
+*~
+*.swp
+*.swo
 
-# Backups and media
-backup/
-backups/
-media/
-share/
+# =========================
+# Environment / credential files
+# =========================
+.env
+.env.*
+*.pem
+*.key
+*.crt
 
-# ESPHome build artifacts (keep YAML sources)
-esphome/.esphome/
-esphome/build/
-esphome/.pioenvs/
-esphome/*/.esphome/
-esphome/*/build/
-esphome/*/.pioenvs/
-esphome/*/*.bin
-esphome/*.bin
-
-# Zigbee2MQTT runtime data (keep configs)
-zigbee2mqtt/data/
-zigbee2mqtt/log/
-zigbee2mqtt/state/
-zigbee2mqtt/coordinator_backup*.json
-
+# HACS core + HACS frontend plugins
+custom_components/hacs/
+www/community/
+custom_components/tapo_control/

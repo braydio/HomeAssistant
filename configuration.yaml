@@ -1,41 +1,11 @@
+
 # Loads default set of integrations. Do not remove.
 default_config:
 
 # Load frontend themes from the themes folder
 frontend:
   themes: !include_dir_merge_named themes
-  extra_module_url:
-    - /www/community/lovelace-card-mod/card-mod.js
 
 automation: !include automations.yaml
 script: !include scripts.yaml
 scene: !include scenes.yaml
-
-panel_iframe:
-  pynance:
-    title: "pyNance"
-    icon: mdi:finance
-    url: "http://localhost:5000"
-
-rest:
-  - resource: "http://localhost:5000/api/summary/financial?start_date={{ (now().date()-timedelta(days=30)).isoformat() }}&end_date={{ now().date().isoformat() }}"
-    method: GET
-    scan_interval: 3600
-    sensor:
-      - name: "pynance_financial_summary"
-        value_template: "{{ value_json.data.totalNet }}"
-        json_attributes:
-          - data
-
-rest_command:
-  pynance_refresh:
-    url: "http://localhost:5000/api/plaid/transactions/refresh_accounts"
-    method: POST
-    content_type: "application/json"
-    payload: |
-      {
-        "start_date": "{{ (now().date() - timedelta(days=1)).isoformat() }}",
-        "end_date": "{{ now().date().isoformat() }}",
-        "account_ids": []
-      }
-
