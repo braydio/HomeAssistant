@@ -1,1 +1,35 @@
-[]
+- id: home_panel_theme
+  alias: 'Home Panel: apply Day/Night theme'
+  description: Applies Panel Day or Panel Night. Auto follows sun.sun; Day/Night are
+    manual overrides.
+  triggers:
+  - trigger: state
+    entity_id: input_select.home_panel_theme_mode
+  - trigger: state
+    entity_id: sun.sun
+  - trigger: homeassistant
+    event: start
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ is_state(''input_select.home_panel_theme_mode'',''Night'')
+          or (is_state(''input_select.home_panel_theme_mode'',''Auto'') and is_state(''sun.sun'',''below_horizon''))
+          }}'
+      sequence:
+      - action: frontend.set_theme
+        data:
+          name: Panel Night
+      - action: frontend.set_theme
+        data:
+          name: Panel Night
+          mode: dark
+    default:
+    - action: frontend.set_theme
+      data:
+        name: Panel Day
+    - action: frontend.set_theme
+      data:
+        name: Panel Day
+        mode: dark
+  mode: restart

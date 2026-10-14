@@ -9,3 +9,18 @@ frontend:
 automation: !include automations.yaml
 script: !include scripts.yaml
 scene: !include scenes.yaml
+
+homeassistant:
+  auth_providers:
+    - type: trusted_networks
+      trusted_networks: 
+        - 127.0.0.1 
+        - ::1
+        - 192.168.1.134
+      trusted_users:
+        127.0.0.1: c4d21a250fc44fc4ac16c24298ffbb00
+        ::1: c4d21a250fc44fc4ac16c24298ffbb00
+        192.168.1.134: c4d21a250fc44fc4ac16c24298ffbb00
+      allow_bypass_login: true
+    - type: homeassistant
+

@@ -1,0 +1,111 @@
+- id: home_panel_bright
+  name: Panel Bright
+  entities:
+    light.bathroom_new_bathroom_light:
+      state: 'on'
+      brightness: 255
+      color_temp_kelvin: 4000
+    light.bedroom_rope_lamp:
+      state: 'on'
+      brightness: 255
+      color_temp_kelvin: 4000
+    light.kitchen_kitchen_stove_left:
+      state: 'on'
+      brightness: 255
+      color_temp_kelvin: 4000
+    light.kitchen_kitchen_stove_right:
+      state: 'on'
+      brightness: 255
+      color_temp_kelvin: 4000
+    light.living_room_cat_light:
+      state: 'on'
+      brightness: 255
+      color_temp_kelvin: 4000
+    light.living_room_overhead_living_room:
+      state: 'on'
+      brightness: 255
+      color_temp_kelvin: 4000
+    light.wiz_rgbw_tunable_d0dce4:
+      state: 'on'
+      brightness: 255
+      color_temp_kelvin: 4000
+    light.bathroom_bathroom_light:
+      state: 'on'
+      brightness: 255
+    light.office_office_main_light:
+      state: 'on'
+      brightness: 255
+- id: home_panel_relax
+  name: Panel Relax
+  entities:
+    light.bathroom_new_bathroom_light:
+      state: 'on'
+      brightness: 110
+      color_temp_kelvin: 2700
+    light.bedroom_rope_lamp:
+      state: 'on'
+      brightness: 110
+      color_temp_kelvin: 2700
+    light.kitchen_kitchen_stove_left:
+      state: 'on'
+      brightness: 110
+      color_temp_kelvin: 2700
+    light.kitchen_kitchen_stove_right:
+      state: 'on'
+      brightness: 110
+      color_temp_kelvin: 2700
+    light.living_room_cat_light:
+      state: 'on'
+      brightness: 110
+      color_temp_kelvin: 2700
+    light.living_room_overhead_living_room:
+      state: 'on'
+      brightness: 110
+      color_temp_kelvin: 2700
+    light.wiz_rgbw_tunable_d0dce4:
+      state: 'on'
+      brightness: 110
+      color_temp_kelvin: 2700
+    light.bathroom_bathroom_light:
+      state: 'on'
+      brightness: 110
+    light.office_office_main_light:
+      state: 'on'
+      brightness: 110
+- id: home_panel_night
+  name: Panel Night Lights
+  entities:
+    light.bathroom_new_bathroom_light:
+      state: 'on'
+      brightness: 20
+      color_temp_kelvin: 2200
+    light.bedroom_rope_lamp:
+      state: 'on'
+      brightness: 20
+      color_temp_kelvin: 2200
+    light.kitchen_kitchen_stove_left:
+      state: 'on'
+      brightness: 20
+      color_temp_kelvin: 2200
+    light.kitchen_kitchen_stove_right:
+      state: 'on'
+      brightness: 20
+      color_temp_kelvin: 2200
+    light.living_room_cat_light:
+      state: 'on'
+      brightness: 20
+      color_temp_kelvin: 2200
+    light.living_room_overhead_living_room:
+      state: 'on'
+      brightness: 20
+      color_temp_kelvin: 2200
+    light.wiz_rgbw_tunable_d0dce4:
+      state: 'on'
+      brightness: 20
+      color_temp_kelvin: 2200
+    light.bathroom_bathroom_light:
+      state: 'on'
+      brightness: 20
+    light.office_office_main_light:
+      state: 'on'
+      brightness: 20

@@ -1,0 +1,38 @@
+[
+  {
+    "icon": "mdi:map",
+    "id": "map",
+    "mode": "storage",
+    "require_admin": false,
+    "show_in_sidebar": true,
+    "title": "Map",
+    "url_path": "map"
+  },
+  {
+    "icon": "mdi:cctv",
+    "id": "dashboard_cameras",
+    "mode": "storage",
+    "require_admin": false,
+    "show_in_sidebar": true,
+    "title": "Cameras",
+    "url_path": "dashboard-cameras"
+  },
+  {
+    "icon": "mdi:tablet-dashboard",
+    "id": "dashboard_dash",
+    "mode": "storage",
+    "require_admin": false,
+    "show_in_sidebar": true,
+    "title": "Dash",
+    "url_path": "dashboard-dash"
+  },
+  {
+    "icon": "mdi:tablet-dashboard",
+    "id": "home_panel",
+    "mode": "storage",
+    "require_admin": false,
+    "show_in_sidebar": true,
+    "title": "Home Panel",
+    "url_path": "home-panel"
+  }
+]

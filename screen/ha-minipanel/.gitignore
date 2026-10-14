@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local configuration and secrets (config.example.json stays tracked)
+config.json
+token
+*.token
+.env
+preferences.json
+
+# Logs and backups
+*.log
+*.bak
+*.bak-*
+
+# Screenshots and editor files
+*.png
+.vscode/
+.idea/
+*.swp

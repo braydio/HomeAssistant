@@ -1,0 +1,885 @@
+{
+  "kiosk_mode": {
+    "non_admin_settings": {
+      "kiosk": true
+    }
+  },
+  "views": [
+    {
+      "max_columns": 2,
+      "path": "home",
+      "sections": [
+        {
+          "cards": [
+            {
+              "content": "## {% set h=now().hour %}{{ 'Good night' if (h<5 or h>=22) else ('Good morning' if h<12 else ('Good afternoon' if h<18 else 'Good evening')) }}\n{{ states('weather.forecast_home')|replace('-',' ')|title }} \u00b7 {{ state_attr('weather.forecast_home','temperature') }}\u00b0F",
+              "grid_options": {
+                "columns": 12,
+                "rows": 2
+              },
+              "type": "markdown"
+            },
+            {
+              "button_type": "slider",
+              "card_layout": "large",
+              "card_type": "button",
+              "entity": "light.all_lights",
+              "grid_options": {
+                "columns": 12,
+                "rows": 2
+              },
+              "icon": "mdi:lightbulb-group",
+              "name": "All Lights",
+              "show_state": true,
+              "type": "custom:bubble-card"
+            }
+          ],
+          "type": "grid"
+        },
+        {
+          "cards": [
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "entity": "scene.panel_relax",
+              "grid_options": {
+                "columns": 12,
+                "rows": 2
+              },
+              "icon": "mdi:sofa-outline",
+              "name": "Relax",
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "scene.turn_on",
+                "target": {
+                  "entity_id": "scene.panel_relax"
+                }
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "entity": "scene.panel_bright",
+              "grid_options": {
+                "columns": 12,
+                "rows": 2
+              },
+              "icon": "mdi:white-balance-sunny",
+              "name": "Bright",
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "scene.turn_on",
+                "target": {
+                  "entity_id": "scene.panel_bright"
+                }
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "entity": "scene.panel_night_lights",
+              "grid_options": {
+                "columns": 12,
+                "rows": 2
+              },
+              "icon": "mdi:weather-night",
+              "name": "Night",
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "scene.turn_on",
+                "target": {
+                  "entity_id": "scene.panel_night_lights"
+                }
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "1_icon": "mdi:home-outline",
+              "1_link": "/home-panel/home",
+              "1_name": "Home",
+              "2_icon": "mdi:lightbulb-outline",
+              "2_link": "/home-panel/lights",
+              "2_name": "Lights",
+              "3_icon": "mdi:palette-outline",
+              "3_link": "/home-panel/colors",
+              "3_name": "Colors",
+              "4_icon": "mdi:cctv",
+              "4_link": "/home-panel/cameras",
+              "4_name": "Cameras",
+              "5_icon": "mdi:cog-outline",
+              "5_link": "/home-panel/settings",
+              "5_name": "Settings",
+              "auto_order": false,
+              "card_layout": "large",
+              "card_type": "horizontal-buttons-stack",
+              "highlight_current_view": true,
+              "margin": "0",
+              "rise": false,
+              "type": "custom:bubble-card",
+              "width_desktop": "100%"
+            }
+          ],
+          "type": "grid"
+        }
+      ],
+      "title": "Home",
+      "type": "sections"
+    },
+    {
+      "max_columns": 2,
+      "path": "lights",
+      "sections": [
+        {
+          "cards": [
+            {
+              "button_type": "slider",
+              "card_layout": "large",
+              "card_type": "button",
+              "entity": "light.kitchen_lights",
+              "grid_options": {
+                "columns": 12,
+                "rows": 2
+              },
+              "icon": "mdi:silverware-fork-knife",
+              "name": "Kitchen",
+              "show_state": true,
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "slider",
+              "card_layout": "large",
+              "card_type": "button",
+              "entity": "light.living_room_lights",
+              "grid_options": {
+                "columns": 12,
+                "rows": 2
+              },
+              "icon": "mdi:sofa",
+              "name": "Living Room",
+              "show_state": true,
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "slider",
+              "card_layout": "large",
+              "card_type": "button",
+              "entity": "light.bathroom_lights",
+              "grid_options": {
+                "columns": 12,
+                "rows": 2
+              },
+              "icon": "mdi:shower",
+              "name": "Bathroom",
+              "show_state": true,
+              "type": "custom:bubble-card"
+            }
+          ],
+          "type": "grid"
+        },
+        {
+          "cards": [
+            {
+              "button_type": "slider",
+              "card_layout": "large",
+              "card_type": "button",
+              "entity": "light.bedroom_rope_lamp",
+              "grid_options": {
+                "columns": 12,
+                "rows": 2
+              },
+              "icon": "mdi:bed",
+              "name": "Bedroom",
+              "show_state": true,
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "slider",
+              "card_layout": "large",
+              "card_type": "button",
+              "entity": "light.office_office_main_light",
+              "grid_options": {
+                "columns": 12,
+                "rows": 2
+              },
+              "icon": "mdi:desk",
+              "name": "Office",
+              "show_state": true,
+              "type": "custom:bubble-card"
+            },
+            {
+              "1_icon": "mdi:home-outline",
+              "1_link": "/home-panel/home",
+              "1_name": "Home",
+              "2_icon": "mdi:lightbulb-outline",
+              "2_link": "/home-panel/lights",
+              "2_name": "Lights",
+              "3_icon": "mdi:palette-outline",
+              "3_link": "/home-panel/colors",
+              "3_name": "Colors",
+              "4_icon": "mdi:cctv",
+              "4_link": "/home-panel/cameras",
+              "4_name": "Cameras",
+              "5_icon": "mdi:cog-outline",
+              "5_link": "/home-panel/settings",
+              "5_name": "Settings",
+              "auto_order": false,
+              "card_layout": "large",
+              "card_type": "horizontal-buttons-stack",
+              "highlight_current_view": true,
+              "margin": "0",
+              "rise": false,
+              "type": "custom:bubble-card",
+              "width_desktop": "100%"
+            }
+          ],
+          "type": "grid"
+        }
+      ],
+      "title": "Lights",
+      "type": "sections"
+    },
+    {
+      "max_columns": 2,
+      "path": "colors",
+      "sections": [
+        {
+          "cards": [
+            {
+              "entity": "input_select.home_panel_color_target",
+              "features": [
+                {
+                  "type": "select-options"
+                }
+              ],
+              "features_position": "bottom",
+              "grid_options": {
+                "columns": 12,
+                "rows": 3
+              },
+              "icon": "mdi:target",
+              "name": "Change",
+              "type": "tile",
+              "vertical": false
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 4,
+                "rows": 1
+              },
+              "icon": "mdi:circle",
+              "name": "Warm",
+              "styles": ".bubble-icon-container { background-color: #FFB35C !important; } .bubble-icon { color: transparent !important; }",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "brightness": 220,
+                  "kelvin": 2700
+                },
+                "perform_action": "script.home_panel_apply_color"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 4,
+                "rows": 1
+              },
+              "icon": "mdi:circle",
+              "name": "Daylight",
+              "styles": ".bubble-icon-container { background-color: #CFE3FF !important; } .bubble-icon { color: transparent !important; }",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "brightness": 220,
+                  "kelvin": 5000
+                },
+                "perform_action": "script.home_panel_apply_color"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 4,
+                "rows": 1
+              },
+              "icon": "mdi:circle",
+              "name": "Red",
+              "styles": ".bubble-icon-container { background-color: #FF2D2D !important; } .bubble-icon { color: transparent !important; }",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "brightness": 220,
+                  "rgb": [
+                    255,
+                    0,
+                    0
+                  ]
+                },
+                "perform_action": "script.home_panel_apply_color"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 4,
+                "rows": 1
+              },
+              "icon": "mdi:circle",
+              "name": "Orange",
+              "styles": ".bubble-icon-container { background-color: #FF8A1F !important; } .bubble-icon { color: transparent !important; }",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "brightness": 220,
+                  "rgb": [
+                    255,
+                    120,
+                    0
+                  ]
+                },
+                "perform_action": "script.home_panel_apply_color"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 4,
+                "rows": 1
+              },
+              "icon": "mdi:circle",
+              "name": "Green",
+              "styles": ".bubble-icon-container { background-color: #22C55E !important; } .bubble-icon { color: transparent !important; }",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "brightness": 220,
+                  "rgb": [
+                    0,
+                    255,
+                    60
+                  ]
+                },
+                "perform_action": "script.home_panel_apply_color"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 4,
+                "rows": 1
+              },
+              "icon": "mdi:circle",
+              "name": "Cyan",
+              "styles": ".bubble-icon-container { background-color: #22D3EE !important; } .bubble-icon { color: transparent !important; }",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "brightness": 220,
+                  "rgb": [
+                    0,
+                    220,
+                    255
+                  ]
+                },
+                "perform_action": "script.home_panel_apply_color"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 4,
+                "rows": 1
+              },
+              "icon": "mdi:circle",
+              "name": "Blue",
+              "styles": ".bubble-icon-container { background-color: #3B82F6 !important; } .bubble-icon { color: transparent !important; }",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "brightness": 220,
+                  "rgb": [
+                    0,
+                    60,
+                    255
+                  ]
+                },
+                "perform_action": "script.home_panel_apply_color"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 4,
+                "rows": 1
+              },
+              "icon": "mdi:circle",
+              "name": "Purple",
+              "styles": ".bubble-icon-container { background-color: #A855F7 !important; } .bubble-icon { color: transparent !important; }",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "brightness": 220,
+                  "rgb": [
+                    150,
+                    0,
+                    255
+                  ]
+                },
+                "perform_action": "script.home_panel_apply_color"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 4,
+                "rows": 1
+              },
+              "icon": "mdi:circle",
+              "name": "Pink",
+              "styles": ".bubble-icon-container { background-color: #EC4899 !important; } .bubble-icon { color: transparent !important; }",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "brightness": 220,
+                  "rgb": [
+                    255,
+                    40,
+                    150
+                  ]
+                },
+                "perform_action": "script.home_panel_apply_color"
+              },
+              "type": "custom:bubble-card"
+            }
+          ],
+          "type": "grid"
+        },
+        {
+          "cards": [
+            {
+              "content": "**Presets** \u00b7 Save stores the target's color",
+              "grid_options": {
+                "columns": 12,
+                "rows": 1
+              },
+              "type": "markdown"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 8,
+                "rows": 1
+              },
+              "icon": "mdi:palette",
+              "name": "Preset 1",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "slot": 1
+                },
+                "perform_action": "script.home_panel_apply_preset"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 4,
+                "rows": 1
+              },
+              "icon": "mdi:content-save-outline",
+              "name": "Save 1",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "slot": 1
+                },
+                "perform_action": "script.home_panel_save_preset"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 8,
+                "rows": 1
+              },
+              "icon": "mdi:palette",
+              "name": "Preset 2",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "slot": 2
+                },
+                "perform_action": "script.home_panel_apply_preset"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 4,
+                "rows": 1
+              },
+              "icon": "mdi:content-save-outline",
+              "name": "Save 2",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "slot": 2
+                },
+                "perform_action": "script.home_panel_save_preset"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 8,
+                "rows": 1
+              },
+              "icon": "mdi:palette",
+              "name": "Preset 3",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "slot": 3
+                },
+                "perform_action": "script.home_panel_apply_preset"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 4,
+                "rows": 1
+              },
+              "icon": "mdi:content-save-outline",
+              "name": "Save 3",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "slot": 3
+                },
+                "perform_action": "script.home_panel_save_preset"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 8,
+                "rows": 1
+              },
+              "icon": "mdi:palette",
+              "name": "Preset 4",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "slot": 4
+                },
+                "perform_action": "script.home_panel_apply_preset"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "button_type": "name",
+              "card_layout": "large",
+              "card_type": "button",
+              "grid_options": {
+                "columns": 4,
+                "rows": 1
+              },
+              "icon": "mdi:content-save-outline",
+              "name": "Save 4",
+              "tap_action": {
+                "action": "perform-action",
+                "data": {
+                  "slot": 4
+                },
+                "perform_action": "script.home_panel_save_preset"
+              },
+              "type": "custom:bubble-card"
+            },
+            {
+              "entity": "light.kitchen_lights",
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "icon": "mdi:palette-advanced",
+              "icon_tap_action": {
+                "action": "more-info"
+              },
+              "name": "Kitchen wheel",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "type": "tile"
+            },
+            {
+              "entity": "light.bathroom_lights",
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "icon": "mdi:palette-advanced",
+              "icon_tap_action": {
+                "action": "more-info"
+              },
+              "name": "Bathroom wheel",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "type": "tile"
+            },
+            {
+              "entity": "light.living_room_lights",
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "icon": "mdi:palette-advanced",
+              "icon_tap_action": {
+                "action": "more-info"
+              },
+              "name": "Living Room wheel",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "type": "tile"
+            },
+            {
+              "entity": "light.bedroom_rope_lamp",
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "icon": "mdi:palette-advanced",
+              "icon_tap_action": {
+                "action": "more-info"
+              },
+              "name": "Bedroom wheel",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "type": "tile"
+            },
+            {
+              "1_icon": "mdi:home-outline",
+              "1_link": "/home-panel/home",
+              "1_name": "Home",
+              "2_icon": "mdi:lightbulb-outline",
+              "2_link": "/home-panel/lights",
+              "2_name": "Lights",
+              "3_icon": "mdi:palette-outline",
+              "3_link": "/home-panel/colors",
+              "3_name": "Colors",
+              "4_icon": "mdi:cctv",
+              "4_link": "/home-panel/cameras",
+              "4_name": "Cameras",
+              "5_icon": "mdi:cog-outline",
+              "5_link": "/home-panel/settings",
+              "5_name": "Settings",
+              "auto_order": false,
+              "card_layout": "large",
+              "card_type": "horizontal-buttons-stack",
+              "highlight_current_view": true,
+              "margin": "0",
+              "rise": false,
+              "type": "custom:bubble-card",
+              "width_desktop": "100%"
+            }
+          ],
+          "type": "grid"
+        }
+      ],
+      "title": "Colors",
+      "type": "sections"
+    },
+    {
+      "max_columns": 2,
+      "path": "cameras",
+      "sections": [
+        {
+          "cards": [
+            {
+              "content": "## No camera set up\nHome Assistant has no active camera entity right now. The Tapo C120 needs to be added through the TP-Link Smart Home integration with its Tapo Camera Account. This page will show its live feed once that's done.",
+              "grid_options": {
+                "columns": 12,
+                "rows": 3
+              },
+              "type": "markdown"
+            }
+          ],
+          "type": "grid"
+        },
+        {
+          "cards": [
+            {
+              "1_icon": "mdi:home-outline",
+              "1_link": "/home-panel/home",
+              "1_name": "Home",
+              "2_icon": "mdi:lightbulb-outline",
+              "2_link": "/home-panel/lights",
+              "2_name": "Lights",
+              "3_icon": "mdi:palette-outline",
+              "3_link": "/home-panel/colors",
+              "3_name": "Colors",
+              "4_icon": "mdi:cctv",
+              "4_link": "/home-panel/cameras",
+              "4_name": "Cameras",
+              "5_icon": "mdi:cog-outline",
+              "5_link": "/home-panel/settings",
+              "5_name": "Settings",
+              "auto_order": false,
+              "card_layout": "large",
+              "card_type": "horizontal-buttons-stack",
+              "highlight_current_view": true,
+              "margin": "0",
+              "rise": false,
+              "type": "custom:bubble-card",
+              "width_desktop": "100%"
+            }
+          ],
+          "type": "grid"
+        }
+      ],
+      "title": "Cameras",
+      "type": "sections"
+    },
+    {
+      "max_columns": 2,
+      "path": "settings",
+      "sections": [
+        {
+          "cards": [
+            {
+              "entity": "input_select.home_panel_theme_mode",
+              "features": [
+                {
+                  "type": "select-options"
+                }
+              ],
+              "features_position": "bottom",
+              "grid_options": {
+                "columns": 12,
+                "rows": 3
+              },
+              "icon": "mdi:theme-light-dark",
+              "name": "Theme",
+              "type": "tile",
+              "vertical": false
+            },
+            {
+              "entity": "sun.sun",
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "name": "Sun",
+              "type": "tile"
+            },
+            {
+              "entity": "weather.forecast_home",
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "name": "Weather",
+              "type": "tile"
+            }
+          ],
+          "type": "grid"
+        },
+        {
+          "cards": [
+            {
+              "content": "**Admin:** open this dashboard with `?disable_km` at the end of the address to show the header and sidebar.",
+              "grid_options": {
+                "columns": 12,
+                "rows": 2
+              },
+              "type": "markdown"
+            },
+            {
+              "1_icon": "mdi:home-outline",
+              "1_link": "/home-panel/home",
+              "1_name": "Home",
+              "2_icon": "mdi:lightbulb-outline",
+              "2_link": "/home-panel/lights",
+              "2_name": "Lights",
+              "3_icon": "mdi:palette-outline",
+              "3_link": "/home-panel/colors",
+              "3_name": "Colors",
+              "4_icon": "mdi:cctv",
+              "4_link": "/home-panel/cameras",
+              "4_name": "Cameras",
+              "5_icon": "mdi:cog-outline",
+              "5_link": "/home-panel/settings",
+              "5_name": "Settings",
+              "auto_order": false,
+              "card_layout": "large",
+              "card_type": "horizontal-buttons-stack",
+              "highlight_current_view": true,
+              "margin": "0",
+              "rise": false,
+              "type": "custom:bubble-card",
+              "width_desktop": "100%"
+            }
+          ],
+          "type": "grid"
+        }
+      ],
+      "title": "Settings",
+      "type": "sections"
+    }
+  ]
+}

@@ -69,3 +69,19 @@ Thumbs.db
 custom_components/hacs/
 www/community/
 custom_components/tapo_control/
+
+# More third-party / local-only (tracked list lives in docs/SETUP.md)
+custom_components/browser_mod/
+custom_components/tapo_control/
+*.bak
+*.bak-*
+configuration.yaml.bak-*
+birdnet/c120.env
+birdnet/hls/
+birdnet/recordings/
+birdnet/*.wav
+birdnet/*.ts
+birdnet/*.ulaw
+screen/**/config.json
+screen/**/token
+screen/**/preferences.json

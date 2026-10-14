@@ -1,0 +1,16 @@
+[Unit]
+Description=C120 16 kHz private audio bridge for BirdNET
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=braydenchaffee
+WorkingDirectory=/home/braydenchaffee/birdnet-download
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/braydenchaffee/birdnet-download/.venv/bin/python /home/braydenchaffee/birdnet-download/c120_hls_bridge.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

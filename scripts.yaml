@@ -1,0 +1,129 @@
+home_panel_apply_color:
+  alias: 'Home Panel: apply color to target'
+  mode: restart
+  icon: mdi:palette
+  fields:
+    rgb:
+      description: '[r,g,b]'
+      selector:
+        object: {}
+    kelvin:
+      description: White temperature
+      selector:
+        number:
+          min: 2000
+          max: 6500
+    brightness:
+      description: 0-255
+      selector:
+        number:
+          min: 1
+          max: 255
+  sequence:
+  - variables:
+      tgt: '{{ {''All'':''light.all_lights'',''Kitchen'':''light.kitchen_lights'',''Living
+        Room'':''light.living_room_lights'',''Bathroom'':''light.bathroom_lights'',''Bedroom'':''light.bedroom_rope_lamp'',''Office'':''light.office_office_main_light''}[states(''input_select.home_panel_color_target'')]
+        }}'
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ kelvin is defined }}'
+      sequence:
+      - action: light.turn_on
+        target:
+          entity_id: '{{ tgt }}'
+        data:
+          color_temp_kelvin: '{{ kelvin|int }}'
+    default:
+    - action: light.turn_on
+      target:
+        entity_id: '{{ tgt }}'
+      data:
+        rgb_color: '{{ rgb }}'
+  - if:
+    - condition: template
+      value_template: '{{ brightness is defined }}'
+    then:
+    - action: light.turn_on
+      target:
+        entity_id: '{{ tgt }}'
+      data:
+        brightness: '{{ brightness|int }}'
+home_panel_save_preset:
+  alias: 'Home Panel: save target color as preset'
+  mode: single
+  icon: mdi:content-save
+  fields:
+    slot:
+      description: 1-4
+      selector:
+        number:
+          min: 1
+          max: 4
+  sequence:
+  - variables:
+      tgt: '{{ {''All'':''light.all_lights'',''Kitchen'':''light.kitchen_lights'',''Living
+        Room'':''light.living_room_lights'',''Bathroom'':''light.bathroom_lights'',''Bedroom'':''light.bedroom_rope_lamp'',''Office'':''light.office_office_main_light''}[states(''input_select.home_panel_color_target'')]
+        }}'
+  - variables:
+      members: '{{ state_attr(tgt,''entity_id'') if state_attr(tgt,''entity_id'')
+        is not none else [tgt] }}'
+  - variables:
+      lit: '{{ members | select(''is_state'',''on'') | list }}'
+  - variables:
+      src: '{{ (lit | select(''is_state_attr'',''color_mode'',''rgbw'') | list + lit
+        | select(''is_state_attr'',''color_mode'',''rgb'') | list + lit | select(''is_state_attr'',''color_mode'',''rgbww'')
+        | list + lit) | first | default('''') }}'
+  - condition: template
+    value_template: '{{ src != '''' }}'
+  - variables:
+      rgb: '{{ state_attr(src,''rgb_color'') }}'
+      k: '{{ state_attr(src,''color_temp_kelvin'') }}'
+      mode: '{{ state_attr(src,''color_mode'') }}'
+      b: '{{ state_attr(src,''brightness'') or 200 }}'
+  - condition: template
+    value_template: '{{ rgb is not none or k is not none }}'
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.home_panel_preset_{{ slot|int }}
+    data:
+      value: '{% if mode == ''color_temp'' %}k:{{ k|int }}{% else %}rgb:{{ rgb|join('','')
+        }}{% endif %};b:{{ b|int }}'
+home_panel_apply_preset:
+  alias: 'Home Panel: apply saved preset to target'
+  mode: restart
+  icon: mdi:palette-swatch
+  fields:
+    slot:
+      description: 1-4
+      selector:
+        number:
+          min: 1
+          max: 4
+  sequence:
+  - variables:
+      tgt: '{{ {''All'':''light.all_lights'',''Kitchen'':''light.kitchen_lights'',''Living
+        Room'':''light.living_room_lights'',''Bathroom'':''light.bathroom_lights'',''Bedroom'':''light.bedroom_rope_lamp'',''Office'':''light.office_office_main_light''}[states(''input_select.home_panel_color_target'')]
+        }}'
+      v: '{{ states(''input_text.home_panel_preset_'' ~ (slot|int)) }}'
+      b: '{{ (v.split(''b:'')[1]|int(200)) if ''b:'' in v else 200 }}'
+  - condition: template
+    value_template: '{{ v.startswith(''rgb:'') or v.startswith(''k:'') }}'
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ v.startswith(''k:'') }}'
+      sequence:
+      - action: light.turn_on
+        target:
+          entity_id: '{{ tgt }}'
+        data:
+          color_temp_kelvin: '{{ v.split('';'')[0][2:]|int(2700) }}'
+          brightness: '{{ b }}'
+    default:
+    - action: light.turn_on
+      target:
+        entity_id: '{{ tgt }}'
+      data:
+        rgb_color: '{{ v.split('';'')[0][4:].split('','')|map(''int'')|list }}'
+        brightness: '{{ b }}'

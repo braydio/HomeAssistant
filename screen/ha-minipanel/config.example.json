@@ -1,0 +1,12 @@
+{
+  "ha_url": "http://HOME_ASSISTANT_PI4_IP:8123",
+  "token_file": "~/.config/ha-minipanel/token",
+  "lights": [],
+  "scenes": [],
+  "cameras": [],
+  "poll_seconds": 12,
+  "snapshot_seconds": 12,
+  "auto_discover_lights": true,
+  "auto_discover_scenes": true,
+  "auto_discover_cameras": true
+}

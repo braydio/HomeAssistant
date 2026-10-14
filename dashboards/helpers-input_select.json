@@ -1,0 +1,27 @@
+[
+  {
+    "icon": "mdi:theme-light-dark",
+    "id": "home_panel_theme_mode",
+    "initial": "Auto",
+    "name": "Home Panel Theme Mode",
+    "options": [
+      "Auto",
+      "Day",
+      "Night"
+    ]
+  },
+  {
+    "icon": "mdi:target",
+    "id": "home_panel_color_target",
+    "initial": "All",
+    "name": "Home Panel Color Target",
+    "options": [
+      "All",
+      "Kitchen",
+      "Living Room",
+      "Bathroom",
+      "Bedroom",
+      "Office"
+    ]
+  }
+]

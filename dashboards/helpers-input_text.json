@@ -1,0 +1,38 @@
+[
+  {
+    "icon": "mdi:palette",
+    "id": "home_panel_preset_1",
+    "initial": "rgb:255,147,41;b:200",
+    "max": 100,
+    "min": 0,
+    "mode": "text",
+    "name": "Home Panel Preset 1"
+  },
+  {
+    "icon": "mdi:palette",
+    "id": "home_panel_preset_2",
+    "initial": "rgb:59,130,246;b:200",
+    "max": 100,
+    "min": 0,
+    "mode": "text",
+    "name": "Home Panel Preset 2"
+  },
+  {
+    "icon": "mdi:palette",
+    "id": "home_panel_preset_3",
+    "initial": "rgb:168,85,247;b:200",
+    "max": 100,
+    "min": 0,
+    "mode": "text",
+    "name": "Home Panel Preset 3"
+  },
+  {
+    "icon": "mdi:palette",
+    "id": "home_panel_preset_4",
+    "initial": "rgb:34,197,94;b:200",
+    "max": 100,
+    "min": 0,
+    "mode": "text",
+    "name": "Home Panel Preset 4"
+  }
+]
