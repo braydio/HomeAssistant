@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PyQt5.QtCore import Qt, QTimer, QSize, QObject, QRunnable, QThreadPool, pyqtSignal
 from PyQt5.QtGui import QPixmap, QFont
-from PyQt5.QtWidgets import (QApplication, QFrame, QWidget, QLabel, QMainWindow, QPushButton,
+from PyQt5.QtWidgets import (QScroller, QApplication, QFrame, QWidget, QLabel, QMainWindow, QPushButton,
     QVBoxLayout, QHBoxLayout, QGridLayout, QStackedWidget, QScrollArea, QSlider,
     QSizePolicy, QButtonGroup)
 
@@ -22,6 +22,7 @@ from ha_client import HAClient, HomeAssistantError
 ROOT = Path(__file__).resolve().parent
 COMPACT = False  # set from config touch_band; shrinks the UI to fit a short band
 COMPACT_CSS = '''
+        QLabel[role="infoClock"] { font-size: 44px; font-weight: 700; }
         QLabel[role="hero"] { font-size: 26px; }
         QLabel[role="heading"] { font-size: 21px; }
         QPushButton { padding: 2px 12px; }
@@ -85,7 +86,7 @@ class LightRow(QFrame):
     def __init__(self, entity, parent_panel):
         super().__init__(); self.setObjectName('LightRow')
         self.panel=parent_panel; self.entity=entity
-        h=QHBoxLayout(self); h.setContentsMargins(14,8,14,8); h.setSpacing(10)
+        h=QHBoxLayout(self); h.setContentsMargins(*((14,3,14,3) if COMPACT else (14,8,14,8))); h.setSpacing(10)
         names=QVBoxLayout(); names.setSpacing(3)
         self.title=label(friendly(entity),'rowTitle'); self.meta=label('','small')
         names.addWidget(self.title); names.addWidget(self.meta)
@@ -142,10 +143,8 @@ class Panel(QMainWindow):
         # Some digitizers only report touches in a middle band of the screen (QDtech MPI7002: ~Y 107-449 of 600).
         # touch_band=[top,bottom] confines the whole UI to that band so every control is reachable.
         band=config.get('touch_band'); self.compact=bool(band)
-        if band:
-            top,bot=int(band[0]),int(band[1])
-            self.setWindowFlag(Qt.FramelessWindowHint); self.setGeometry(0,top,1024,bot-top); self.setFixedSize(1024,bot-top)
-        else: self.resize(1024,600)
+        self.band=(int(band[0]),int(band[1])) if band else None
+        self.resize(1024,600)
         self.build_ui()
         self.set_theme('dark')
         self.clock_update()
@@ -158,8 +157,7 @@ class Panel(QMainWindow):
         self.camera_timer.start(max(5,int(config.get('snapshot_seconds',12)))*1000)
         self.clock_timer=QTimer(self); self.clock_timer.timeout.connect(self.clock_update)
         self.clock_timer.start(10000)
-        if band: self.show()
-        elif fullscreen: self.showFullScreen()
+        if fullscreen: self.showFullScreen()
         else: self.show()
 
     def load_preferences(self):
@@ -173,12 +171,36 @@ class Panel(QMainWindow):
 
     def build_ui(self):
         root=QWidget(); root.setObjectName('Root'); self.setCentralWidget(root)
-        outer=layout_v(root,(18,4,18,4) if self.compact else (18,12,18,12),5 if self.compact else 9)
-        bar=QHBoxLayout(); bar.setSpacing(12)
-        self.clock=label('00:00','clock'); bar.addWidget(self.clock)
-        bar.addStretch(1); bar.addWidget(label('HOME PANEL','overline'))
-        bar.addStretch(1); self.theme_status=label('AUTO','small'); bar.addWidget(self.theme_status)
-        outer.addLayout(bar)
+        self.top_greeting=QLabel(); self.top_summary=QLabel(); self.date_label=QLabel()
+        self.bottom_status=QLabel(); self.bottom_detail=QLabel()
+        if self.band:
+            # Dead touch zones (above/below the band) carry information only; every control sits in the band.
+            top,bot=self.band
+            page=layout_v(root,(0,0,0,0),0)
+            topw=QWidget(); topw.setFixedHeight(top); tl=QHBoxLayout(topw); tl.setContentsMargins(24,8,24,8)
+            left=QVBoxLayout(); left.setSpacing(0)
+            self.clock=label('00:00','infoClock'); self.date_label=label('','small')
+            left.addStretch(1); left.addWidget(self.clock); left.addWidget(self.date_label); left.addStretch(1)
+            centre=QVBoxLayout(); centre.setSpacing(2)
+            self.top_greeting=label('','heading'); self.top_summary=label('Checking lights…','rowTitle')
+            centre.addStretch(1); centre.addWidget(self.top_greeting); centre.addWidget(self.top_summary); centre.addStretch(1)
+            right=QVBoxLayout(); right.setSpacing(2)
+            self.theme_status=label('AUTO','small')
+            right.addStretch(1); right.addWidget(label('HOME PANEL','overline')); right.addWidget(self.theme_status); right.addStretch(1)
+            tl.addLayout(left,2); tl.addLayout(centre,3); tl.addLayout(right,1)
+            mid=QWidget(); mid.setFixedHeight(bot-top)
+            outer=layout_v(mid,(18,4,18,4),5)
+            botw=QWidget(); botw.setFixedHeight(600-bot); bl=QVBoxLayout(botw); bl.setContentsMargins(24,10,24,10); bl.setSpacing(3)
+            self.bottom_status=label('Connecting…','rowTitle'); self.bottom_detail=label('','small')
+            bl.addStretch(1); bl.addWidget(self.bottom_status); bl.addWidget(self.bottom_detail); bl.addStretch(1)
+            page.addWidget(topw); page.addWidget(mid); page.addWidget(botw)
+        else:
+            outer=layout_v(root,(18,12,18,12),9)
+            bar=QHBoxLayout(); bar.setSpacing(12)
+            self.clock=label('00:00','clock'); bar.addWidget(self.clock)
+            bar.addStretch(1); bar.addWidget(label('HOME PANEL','overline'))
+            bar.addStretch(1); self.theme_status=label('AUTO','small'); bar.addWidget(self.theme_status)
+            outer.addLayout(bar)
         self.stack=QStackedWidget(); outer.addWidget(self.stack,1)
         self.make_home(); self.make_lights(); self.make_cameras(); self.make_settings()
         navbar=QFrame(); navbar.setObjectName('Nav'); nav=QHBoxLayout(navbar)
@@ -192,14 +214,15 @@ class Panel(QMainWindow):
 
     def section_head(self, title, subtitle):
         col=QVBoxLayout(); col.setSpacing(2)
-        col.addWidget(label(title,'heading')); col.addWidget(label(subtitle,'small'))
+        col.addWidget(label(title,'heading'))
+        if not COMPACT: col.addWidget(label(subtitle,'small'))
         return col
 
     def make_home(self):
         page=QWidget(); body=layout_v(page,(3,2,3,3),12)
         self.home_header=label('Good evening','heading'); body.addWidget(self.home_header)
         self.home_subtitle=label('Your home, one touch away.','small'); body.addWidget(self.home_subtitle)
-        if self.compact: self.home_subtitle.setVisible(False)
+        if self.compact: self.home_subtitle.setVisible(False); self.home_header.setVisible(False)
         content=QHBoxLayout(); content.setSpacing(12)
         lighting=card(); vl=layout_v(lighting,((14,7,14,7) if COMPACT else (18,17,18,17)),12)
         vl.addWidget(label('LIGHTING','overline')); self.home_light_count=label('Checking lights…','hero')
@@ -223,6 +246,7 @@ class Panel(QMainWindow):
         v.addLayout(self.section_head('Lights','Tap to toggle. Slide to dim.'))
         scroll=QScrollArea(); scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        QScroller.grabGesture(scroll.viewport(), QScroller.LeftMouseButtonGesture)  # drag-to-scroll with a finger
         holder=QWidget(); holder.setObjectName('holder'); holder.setStyleSheet('#holder { background: transparent; }'); scroll.viewport().setObjectName('vp'); scroll.viewport().setStyleSheet('#vp { background: transparent; }'); self.light_layout=layout_v(holder,(0,0,0,0),8)
         self.light_layout.addStretch(1); scroll.setWidget(holder)
         v.addWidget(scroll,1); self.stack.addWidget(page)
@@ -292,6 +316,9 @@ class Panel(QMainWindow):
         self.last_error=err
         self.home_subtitle.setText('Cannot reach Home Assistant. Check connection.')
         self.home_light_count.setText('Home is offline')
+        self.top_summary.setText('Home is offline')
+        self.bottom_status.setText('\u25cb Home is offline')
+        self.bottom_detail.setText(f'{self.client.url}  \u00b7  retrying every {int(self.config.get("poll_seconds",12))} s')
 
     def report_error(self,err):
         self.last_error=err; self.camera_stamp.setText('Request failed: '+err[:105])
@@ -311,6 +338,9 @@ class Panel(QMainWindow):
         lights=self.get_entities('light','lights','auto_discover_lights')
         on=sum(s.get('state')=='on' for s in lights)
         self.home_light_count.setText(f'{on} / {len(lights)} on')
+        self.top_summary.setText(f'{on} of {len(lights)} lights on')
+        self.bottom_status.setText('\u25cf Connected to Home Assistant' if not self.demo else '\u25cf Demo mode')
+        self.bottom_detail.setText(f'{self.client.url if not self.demo else "offline demo data"}  \u00b7  updated {datetime.now():%H:%M:%S}')
         self.home_subtitle.setText('All systems ready.' if not self.demo else 'Demo mode · No real devices controlled')
         self.populate_lights(lights)
         scenes=self.get_entities('scene','scenes','auto_discover_scenes')
@@ -410,7 +440,9 @@ class Panel(QMainWindow):
         self.clock.setText(now.strftime('%H:%M'))
         h=now.hour
         if hasattr(self,'home_header'):
-            self.home_header.setText('Good morning' if 5<=h<12 else ('Good afternoon' if 12<=h<18 else 'Good evening'))
+            greet='Good morning' if 5<=h<12 else ('Good afternoon' if 12<=h<18 else 'Good evening')
+            self.home_header.setText(greet); self.top_greeting.setText(greet)
+        self.date_label.setText(now.strftime('%A, %B %d'))
         self.apply_auto_theme()
 
     def set_override(self,theme):
