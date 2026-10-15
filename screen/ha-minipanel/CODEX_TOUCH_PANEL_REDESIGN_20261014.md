@@ -2,7 +2,7 @@
 
 **Repository:** `braydio/HomeAssistant`  
 **Baseline reviewed:** `main@f213bd9a5569dda21e82f84b2415811c309761c0` (2026-10-14 local)  
-**Owner intent:** Execute a clean, modern, low-RAM redesign of the Raspberry Pi Zero 2 W touchscreen, reuse existing Home Assistant devices and integrations, preserve rollback, and report measured results.  
+**Owner intent:** Preserve the smoothly running native Pi Zero 2 W panel and its restricted middle touch band; redesign minimally, add per-light colors and panel-only room/light rearrangement, improve efficiency, preserve rollback, and report measured results.  
 **Priority:** P1  
 **Type:** Codex implementation packet. This file is instructions only; its addition does not modify the deployed panel.
 
@@ -235,3 +235,76 @@ Never automatically open simultaneous HD RTSP streams. Separate optional technic
 7. Secrets absent from commits/logs; Pi 4 not disrupted; reversible deployment documented.
 
 **Sequence:** discover → measure → implement → offscreen tests → physical smoke → soak → document → PR. Fix measured bottlenecks before adding speculative integrations.
+
+## 11. Owner follow-up: damaged touch edges, individual colors, and rearrangeable rooms (MANDATORY; supersedes earlier implementation priorities where they differ)
+
+The owner reconfirmed on October 14 that the bottom and top strips do **not** register touch. A small connector/ribbon-looking part at the bottom corner may have been scraped, although this has not been diagnosed. The **current native Qt panel already runs smoothly** and intentionally puts information in the untouchable edges and interactive controls in the middle. Preserve and build on this working implementation. DO NOT restore Chromium, install a heavyweight UI stack, or attempt invasive hardware fixes.
+
+### 11.1 Touch constraint is a hard UX invariant
+
+- Treat the approximately \`Y=112..442\` touch band (1024×600 panel, \`touch_band\` configuration) as the **only interactive surface**. Live measured endpoints take precedence, with at least 8px inward safety margin. Everything above/below is display-only: clock, weather, status, greeting.
+- **All** new drag handles, source rows, room drop targets, color selectors, palette chips, HSV controls, sliders, popup alternatives, \`Edit\`, \`Move to…\`, \`Save\`, \`Cancel\`, \`Done\`, \`Back\` and navigation must fit wholly inside the live band. This includes every step in an interaction. Avoid OS-native dialogs that open across dead regions.
+- Do not replace middle-band arrangement with conventional full-height touch dashboard. No assumption that software calibration repairs physically absent touch events. If Codex can access physical hardware, record input coordinates with its existing input diagnostic procedure and distinguish missing touch events from UI clipping; do not disturb the possibly damaged hardware ribbon or change low-level drivers as part of redesign.
+- Keep the current smooth native Qt application and X11 startup as the baseline. A visual improvement must **not** cause memory creep, sluggish taps, extra processes, or startup regressions. Changes must be reversible.
+
+### 11.2 Individual-light color support (P0)
+
+This is **in addition to** the earlier global Colors page and existing \`home_panel_apply_color\` / \`home_panel_save_preset\` / \`home_panel_apply_preset\` scripts.
+
+- In a selected light's room-detail row, provide a reachable \`Color\` action that opens **one** lightweight, in-band editor (reuse one QWidget/QStackedWidget; no permanent picker for each row). Show the selected light name, on/off, supported brightness, current color or temperature, swatches, optional Kelvin picker, and \`Apply\` / \`Back\`.
+- Read \`supported_color_modes\`, \`min_color_temp_kelvin\`, \`max_color_temp_kelvin\` and current state from HA before offering controls. \`onoff\`: toggle only; \`brightness\`: dimmer only; \`color_temp\`: Warm (2700 K) / Daylight (4000 K) and range-clamped temperature; \`hs\`, \`xy\`, \`rgb\`, \`rgbw\`, \`rgbww\`: RGB-color controls where HA supports them. Disable unsupported features and tell the user why. Do not assume every Cync/WiZ light handles all modes.
+- Provide named chips: Red, Orange, Green, Cyan, Blue, Purple, Pink, Warm White and Daylight (the last two only for temperature-capable lights). A simple in-band hue/saturation picker is a useful P1 enhancement **only if** responsive and actually fitting; prefer Qt \`QPainter\` rendering on demand. **No QColorDialog that lands in the dead-zone or launches a browser.**
+- A chip tap updates local color preview; use \`light.turn_on\` with properly validated \`rgb_color:[r,g,b]\` OR \`color_temp_kelvin:int\` on **one allowlisted \`light.*\` entity** when Apply is tapped. Permit optional \`brightness_pct\`; do not stream changes to HA with every drag/mouse movement. Clamp values to device capabilities, enforce service allowlist and throttle repeat writes. Verify state after action and handle offline/unavailable gracefully. Official service fields: https://www.home-assistant.io/actions/light.turn_on/ .
+- Preset slots 1–4 still use existing HA scripts/helpers and are not duplicated as divergent panel-only scene definitions. Saving a preset must require explicit in-band confirmation. Explain that preexisting scripts/scenes operate on HA's configured targets, not arbitrary new virtual panel groupings.
+- Tests: on/off-only, dimmer-only, color-temp-only, RGB, mixed-mode group, unreachable, unsupported mode disabled, RGB clamp, Kelvin clamp, no API calls on preview, no duplicates, no off-band editor controls. At most one active picker retained in RAM.
+
+### 11.3 Edit/reorder lights and rooms from the touchscreen (P0)
+
+The user would like to rearrange room/light order and move an individual light from one room to another **without opening HA's main frontend**. Native Qt already provides drag/drop facilities; a small amount of local JSON storage and an edit-mode QWidget should be cheap relative to browser rendering. **This does not justify Chromium.**
+
+**Important distinction:** Home Assistant areas are persistent assignments on devices/entities and can affect other dashboards, automations, and area-targeted services. A panel UI layout is not automatically the same thing. **Implement PANEL-ONLY virtual room layout by default.** Do not silently mutate Home Assistant's Area/Device/Entity Registries, HA light groups, scenes, or automations. Keep the UI/help text explicit: \`Organize this panel (does not change Home Assistant rooms)\`. Actual HA-area synchronization, if later desired, requires a separate explicit opt-in feature and privileged/authorized registry changes; do not implement it within this redesign. HA area background: https://www.home-assistant.io/docs/organizing/areas/ .
+
+**Required interactions inside live touch band:**
+1. Lights > Rooms contains a clear \`Edit layout\` affordance. Edit mode visually separates action handles from light switches, disables all light toggles/sliders during editing, and exposes \`Done\`, \`Cancel\`, \`Reset\` inside the usable band.
+2. **Touch-first reliable method (mandatory):** tap a light's \`Move to…\` control to open an **in-band** list of valid destination rooms; tap destination to stage its move. \`Move up\`/\`Move down\` reorder lights within a room, and \`Move left\`/\`Move right\` or comparable handles reorder room tiles. Every move must work by taps alone, not require long drags or reaching beyond the band. Reset-to-default has confirmation.
+3. **Drag/drop (preferred if measured reliable):** long-press a dedicated drag handle for ~500 ms, create a native Qt \`QDrag\` containing only the validated light entity ID, then drop on an **in-band** room tab/drop target or insertion zone. Highlight valid targets, preserve drag-scroll distinction (\`QScroller\` may intercept touches), and disallow ambiguous drops. Native Qt room-tile reorder can share this implementation. Do not depend solely on dragging: tap-based \`Move to…\` must ship even if physical touch accuracy makes drag unreliable. No large pixmaps, animated ghost overlays, extra WebViews, or third-party drag frameworks.
+4. A panel room is an ordered array of individual \`light.*\` entities, **not** a movable HA \`light.room_group\` containing overlapping children. Initialize from confirmed HA group member IDs / verified area information or curated tracked example data, then deduplicate so each controlled light is in exactly one panel room. Let temporarily unavailable lights remain visible but disabled; do not erase a room because the network drops. Do not auto-add all discovered lights into favorites.
+5. **Critical behavior:** when one light is moved virtually, pressing a room's All On/Off or room color action must target **only current panel-member individual light IDs** with a deduped list. Do NOT call stale HA group \`light.kitchen_lights\` after a virtual change, since it may still contain a moved-out light. Existing external HA scenes/global scripts keep their original membership and do not silently follow the panel layout. Show a brief explanation in edit mode.
+6. \`All Off\` from the panel should act on the deduped allowlisted individual panel lights, not on arbitrary HA devices. Mixed/unsupported color modes should produce an eligible-target count and safely skip incompatible lights with a clear explanation rather than failing the whole group.
+7. Persist only this panel's mapping in \`~/.config/ha-minipanel/layout.json\`, **not** in \`config.example.json\`, tracked \`config.json\`, HA registry, or recorder database. The directory is 0700 and file 0600. Use a versioned schema, validate allowed entity IDs / unique room IDs / order / no duplicate memberships, stage edits in memory until Done, then durable temp-file write + \`fsync\` + atomic \`os.replace\`, with \`layout.json.bak\` for recovery. Cancel restores the in-memory prior snapshot; malformed/unsupported schema falls back to curated defaults without losing backup; Reset requires confirmation.
+8. Suggested pure-model representation and API (add \`screen/ha-minipanel/layout_model.py\`, no Qt dependency):
+
+\`\`\`json
+{
+  "version": 1,
+  "rooms": [
+    {"id": "kitchen", "label": "Kitchen", "order": 0,
+     "lights": ["light.kitchen_kitchen_stove_left", "light.kitchen_kitchen_stove_right"]},
+    {"id": "office", "label": "Office", "order": 1,
+     "lights": ["light.office_office_main_light"]}
+  ]
+}
+\`\`\`
+
+\`\`\`python
+PanelLayout.load(path, defaults, allowed_ids)
+PanelLayout.move_light(entity_id, target_room_id, before_id=None)
+PanelLayout.reorder_light(room_id, entity_id, new_index)
+PanelLayout.reorder_room(room_id, new_index)
+PanelLayout.validate()
+PanelLayout.commit_atomic()
+PanelLayout.cancel()
+PanelLayout.reset_to_defaults()
+\`\`\`
+
+These example entity IDs come from source-controlled scenes and may not match the currently live HA inventory. Validate them before populating the actual device configuration. The model stores entity references only, never credentials or area-registry mutations.
+
+**Performance gate for editing:** zero network requests just to drag/reorder, no extra long-lived services or heavyweight Python deps, no redraw of every room on each finger move. Target <=10 MiB incremental RSS while edit mode is active, and no measurable increase while idle. Benchmark 5 rooms/20 lights, simulate 50 lights if needed, 50 sequential rearrangements, 30-minute soak, restart persistence and repeated edit-mode open/close without memory growth. If drag feels bad with this limited touch band, drop drag functionality before sacrificing tap-sized buttons or responsiveness; the \`Move to…\` workflow alone fulfills the practical need.
+
+**Acceptance sequence:** choose Edit layout; move a light to another room using taps, reorder a room and two lights; hit Cancel and verify no persistence; repeat and hit Done, relaunch and verify; confirm room control targets only current panel assignments, current HA areas/groups/scenes/automations remain untouched; confirm input events work from start to finish entirely inside the measured active band; perform color changes on representative real lights and measure latency/RSS.
+
+### 11.4 Required Codex outputs and delivery updates
+
+Include both features in the implementation branch and updated unit/Qt-offscreen tests; create a sanitized demo showing (a) one individual-light color editor, (b) active room layout editing, (c) move destination picker, and (d) the original touch-band exclusion overlay at 112/442. Update \`docs/PANEL_REDESIGN_AUDIT.md\`, \`docs/PANEL_PERFORMANCE.md\`, \`docs/PANEL_DEPLOY_AND_ROLLBACK.md\`, \`config.example.json\`, and README as needed. Clearly distinguish **implemented**, **live-tested**, and **pending hardware access**. Report progress by feature (touch safety, native layout, colors, panel-only room edits, runtime efficiency, camera, tests, deployment) and overall.
+
+**Priority override:** protect the already-smooth native panel and the narrow middle touch area **before** any other proposed features or integrations. Color controls and panel-only room reordering now outrank optional media/system-monitor/BirdNET integrations. If scope or RAM becomes constrained, defer optional integrations, camera live-view investigations, fancy drag visuals and hue wheels, but **do not omit** the basic in-band color chips and tap-based room rearrangement.
