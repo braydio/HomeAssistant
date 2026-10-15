@@ -75,6 +75,16 @@ class HAClient:
         return self.request('POST', f'/api/services/{domain}/{action}',
                             {'entity_id': entity_ids, **data})
 
+    def forecast(self, entity_id, kind='daily'):
+        """Daily/hourly forecast via weather.get_forecasts (returns a list of forecast dicts)."""
+        if not entity_id.startswith('weather.'):
+            raise ValueError('Not a weather entity')
+        if self.demo:
+            return []
+        r = self.request('POST', '/api/services/weather/get_forecasts?return_response',
+                         {'entity_id': entity_id, 'type': kind}, timeout=10)
+        return ((r or {}).get('service_response') or {}).get(entity_id, {}).get('forecast', [])
+
     def camera_snapshot(self, entity_id, width=720, height=400):
         if not entity_id.startswith('camera.'):
             raise ValueError('Not a camera entity')

@@ -9,5 +9,6 @@
   "auto_discover_lights": true,
   "auto_discover_scenes": true,
   "auto_discover_cameras": true,
-  "touch_band": null
+  "touch_band": null,
+  "weather_entity": null
 }

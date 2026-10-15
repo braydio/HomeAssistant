@@ -20,6 +20,13 @@ from PyQt5.QtWidgets import (QScroller, QApplication, QFrame, QWidget, QLabel, Q
 from ha_client import HAClient, HomeAssistantError
 
 ROOT = Path(__file__).resolve().parent
+WEATHER = {  # HA weather condition -> (glyph, label)
+    'clear-night':('\u263e','Clear night'),'sunny':('\u2600','Sunny'),'cloudy':('\u2601','Cloudy'),
+    'partlycloudy':('\u26c5','Partly cloudy'),'rainy':('\u2602','Rain'),'pouring':('\u2602','Heavy rain'),
+    'lightning':('\u26a1','Thunderstorm'),'lightning-rainy':('\u26a1','Thunderstorms'),'snowy':('\u2744','Snow'),
+    'snowy-rainy':('\u2744','Sleet'),'hail':('\u2744','Hail'),'fog':('\u224b','Fog'),'windy':('\u2248','Windy'),
+    'windy-variant':('\u2248','Windy'),'exceptional':('!','Alert'),
+}
 COMPACT = False  # set from config touch_band; shrinks the UI to fit a short band
 COMPACT_CSS = '''
         QLabel[role="infoClock"] { font-size: 44px; font-weight: 700; }
@@ -203,7 +210,7 @@ class Panel(QMainWindow):
             mid=QWidget(); mid.setFixedHeight(bot-top)
             outer=layout_v(mid,(18,4,18,4),5)
             botw=QWidget(); botw.setFixedHeight(600-bot); bl=QVBoxLayout(botw); bl.setContentsMargins(24,10,24,10); bl.setSpacing(3)
-            self.bottom_status=label('Connecting…','rowTitle'); self.bottom_detail=label('','small')
+            self.bottom_status=label('Loading weather…','heading'); self.bottom_detail=label('','small')
             bl.addStretch(1); bl.addWidget(self.bottom_status); bl.addWidget(self.bottom_detail); bl.addStretch(1)
             page.addWidget(topw); page.addWidget(mid); page.addWidget(botw)
         else:
@@ -350,7 +357,7 @@ class Panel(QMainWindow):
         self.home_light_count.setText('Home is offline')
         self.top_summary.setText('Home is offline')
         self.bottom_status.setText('\u25cb Home is offline')
-        self.bottom_detail.setText(f'{self.client.url}  \u00b7  retrying every {int(self.config.get("poll_seconds",12))} s')
+        self.bottom_detail.setText(f'Retrying every {int(self.config.get("poll_seconds",12))} seconds')
 
     def report_error(self,err):
         self.last_error=err; self.camera_stamp.setText('Request failed: '+err[:105])
@@ -371,8 +378,7 @@ class Panel(QMainWindow):
         on=sum(s.get('state')=='on' for s in lights)
         self.home_light_count.setText(f'{on} / {len(lights)} on')
         self.top_summary.setText(f'{on} of {len(lights)} lights on')
-        self.bottom_status.setText('\u25cf Connected to Home Assistant' if not self.demo else '\u25cf Demo mode')
-        self.bottom_detail.setText(f'{self.client.url if not self.demo else "offline demo data"}  \u00b7  updated {datetime.now():%-I:%M:%S %p}')
+        self.update_weather()
         self.home_subtitle.setText('All systems ready.' if not self.demo else 'Demo mode · No real devices controlled')
         self.populate_lights(lights)
         self.refresh_room()
@@ -494,6 +500,42 @@ class Panel(QMainWindow):
         self.dispatch(key, lambda:self.client.service(domain,action,entity_ids,**kwargs),
                       lambda _:QTimer.singleShot(300,self.poll),
                       lambda e:self.connection.setText('Action failed: '+e[:85]))
+
+    def weather_entity(self):
+        want=self.config.get('weather_entity')
+        if want: return self.states.get(want)
+        ws=sorted(e for e in self.states if e.startswith('weather.'))
+        return self.states[ws[0]] if ws else None
+
+    def update_weather(self):
+        w=self.weather_entity()
+        if not w or w.get('state') in ('unavailable','unknown'):
+            self.bottom_status.setText('Weather unavailable' if not self.demo else 'Demo mode')
+            self.bottom_detail.setText('')
+            return
+        a=w.get('attributes',{}); glyph,name=WEATHER.get(w.get('state'),('',str(w.get('state','')).replace('-',' ').title()))
+        t=a.get('temperature'); unit=a.get('temperature_unit','')
+        temp=f'{round(t)}{unit}' if t is not None else ''
+        self.bottom_status.setText(f'{glyph}  {temp}   {name}'.strip())
+        bits=[]
+        if a.get('humidity') is not None: bits.append(f"Humidity {round(a['humidity'])}%")
+        if a.get('wind_speed') is not None: bits.append(f"Wind {round(a['wind_speed'])} {a.get('wind_speed_unit','')}".strip())
+        lines=['  \u00b7  '.join(bits)] if bits else []
+        f=getattr(self,'forecast_next',None)
+        if f:
+            fg,fname=WEATHER.get(f.get('condition'),('',str(f.get('condition','')).replace('-',' ').title()))
+            hi,lo=f.get('temperature'),f.get('templow')
+            rng=f' \u00b7 {round(hi)}\u00b0 / {round(lo)}\u00b0' if hi is not None and lo is not None else ''
+            lines.append(f'Tomorrow: {fname}{rng}')
+        self.bottom_detail.setText('\n'.join(lines))
+        # refresh the daily forecast at most every 30 minutes
+        if time.monotonic()-getattr(self,'forecast_at',-1e9)>1800 and not self.demo:
+            self.forecast_at=time.monotonic()
+            self.dispatch('forecast',lambda:self.client.forecast(w['entity_id']),self.set_forecast,lambda e:None)
+
+    def set_forecast(self,days):
+        self.forecast_next=days[1] if len(days)>1 else None
+        self.update_weather()
 
     def clock_update(self):
         now=datetime.now()
