@@ -217,7 +217,7 @@ Never automatically open simultaneous HD RTSP streams. Separate optional technic
 ## 9. Requested outputs
 
 - Working implementation on a feature branch + PR, link SHA and changed files; no deployment mutation on main until reviewed.
-- `docs/PANEL_RED DESIGN_AUDIT.md` (use conventional filename `PANEL_REDESIGN_AUDIT.md`) with confirmed vs inferred vs proposed inventory and before/after code findings.
+- `docs/PANEL_REDESIGN_AUDIT.md`) with confirmed vs inferred vs proposed inventory and before/after code findings.
 - `docs/PANEL_ENTITY_INVENTORY.md` sanitized; mark each device as verified, configured/unavailable, or unverified.
 - `docs/PANEL_PERFORMANCE.md` exact measurement commands, table of measured (not estimated) baseline/after: app RSS, X RSS, MemAvailable, CPU/temp, boot-to-ready, lag, camera latency, polling rate, uptime, failures, sample durations, process names and device hostname role (no passwords).
 - `docs/PANEL_DEPLOY_AND_ROLLBACK.md` with safe stepwise install, X11/DietPi autostart behavior, app rollback and Chromium fallback.
