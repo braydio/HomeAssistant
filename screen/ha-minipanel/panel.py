@@ -83,9 +83,9 @@ class Job(QRunnable):
 
 
 class LightRow(QFrame):
-    def __init__(self, entity, parent_panel):
+    def __init__(self, entity, parent_panel, on_open=None):
         super().__init__(); self.setObjectName('LightRow')
-        self.panel=parent_panel; self.entity=entity
+        self.panel=parent_panel; self.entity=entity; self.on_open=on_open; self.openable=False; self._press=None
         h=QHBoxLayout(self); h.setContentsMargins(*((14,3,14,3) if COMPACT else (14,8,14,8))); h.setSpacing(10)
         names=QVBoxLayout(); names.setSpacing(3)
         self.title=label(friendly(entity),'rowTitle'); self.meta=label('','small')
@@ -105,7 +105,9 @@ class LightRow(QFrame):
         self.entity=entity; attrs=entity.get('attributes',{})
         on = entity.get('state')=='on'
         available = entity.get('state') not in ('unavailable','unknown')
-        self.title.setText(friendly(entity))
+        members=attrs.get('entity_id')
+        self.openable=bool(self.on_open) and isinstance(members,list) and len(members)>0
+        self.title.setText(friendly(entity)+('  \u203a' if self.openable else ''))
         bri_now=attrs.get('brightness')
         if not available: self.meta.setText('Unavailable')
         elif on and bri_now is not None and dimmable(entity): self.meta.setText('On \u00b7 %d%%'%round(bri_now/255*100))
@@ -121,6 +123,16 @@ class LightRow(QFrame):
         if not self.slider.isSliderDown():
             bri=attrs.get('brightness')
             if bri is not None: self.slider.setValue(max(1,round(bri/255*100)))
+
+    def mousePressEvent(self,e):
+        self._press=e.pos(); super().mousePressEvent(e)
+
+    def mouseReleaseEvent(self,e):
+        super().mouseReleaseEvent(e)
+        # a tap (not a drag) on the name area opens the room; buttons/sliders handle their own taps
+        if self.openable and self._press is not None and (e.pos()-self._press).manhattanLength()<14:
+            self.on_open(self.entity['entity_id'])
+        self._press=None
 
     def toggle_light(self):
         action = 'turn_off' if self.entity.get('state')=='on' else 'turn_on'
@@ -241,15 +253,34 @@ class Panel(QMainWindow):
         content.addWidget(actions,2)
         body.addLayout(content,1); self.stack.addWidget(page)
 
-    def make_lights(self):
-        page=QWidget(); v=layout_v(page,(3,2,3,3),8)
-        v.addLayout(self.section_head('Lights','Tap to toggle. Slide to dim.'))
+    def make_scroll(self):
         scroll=QScrollArea(); scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         QScroller.grabGesture(scroll.viewport(), QScroller.LeftMouseButtonGesture)  # drag-to-scroll with a finger
-        holder=QWidget(); holder.setObjectName('holder'); holder.setStyleSheet('#holder { background: transparent; }'); scroll.viewport().setObjectName('vp'); scroll.viewport().setStyleSheet('#vp { background: transparent; }'); self.light_layout=layout_v(holder,(0,0,0,0),8)
-        self.light_layout.addStretch(1); scroll.setWidget(holder)
-        v.addWidget(scroll,1); self.stack.addWidget(page)
+        holder=QWidget(); holder.setObjectName('holder'); holder.setStyleSheet('#holder { background: transparent; }')
+        scroll.viewport().setObjectName('vp'); scroll.viewport().setStyleSheet('#vp { background: transparent; }')
+        lay=layout_v(holder,(0,0,0,0),8); lay.addStretch(1); scroll.setWidget(holder)
+        return scroll,lay
+
+    def make_lights(self):
+        page=QWidget(); pv=layout_v(page,(0,0,0,0),0)
+        self.lights_views=QStackedWidget(); pv.addWidget(self.lights_views)
+        rooms=QWidget(); v=layout_v(rooms,(3,2,3,3),8)
+        v.addLayout(self.section_head('Lights','Tap a room name to see its lights. Slide to dim.'))
+        scroll,self.light_layout=self.make_scroll(); v.addWidget(scroll,1)
+        self.lights_views.addWidget(rooms)
+        room=QWidget(); rv=layout_v(room,(3,2,3,3),8)
+        head=QHBoxLayout(); head.setSpacing(10)
+        self.room_back=button('\u2039  Rooms',self.close_room,'secondary'); self.room_back.setMinimumWidth(110)
+        self.room_title=label('','heading')
+        self.room_toggle=button('OFF',self.toggle_room,'secondary')
+        self.room_toggle.setMinimumWidth(78); self.room_toggle.setMaximumWidth(105)
+        head.addWidget(self.room_back); head.addWidget(self.room_title,1); head.addWidget(self.room_toggle)
+        rv.addLayout(head)
+        rscroll,self.room_layout=self.make_scroll(); rv.addWidget(rscroll,1)
+        self.lights_views.addWidget(room)
+        self.room_rows={}; self.current_room=None
+        self.stack.addWidget(page)
 
     def make_cameras(self):
         page=QWidget(); v=layout_v(page,(3,2,3,3),8)
@@ -293,6 +324,7 @@ class Panel(QMainWindow):
 
     def switch_page(self, i):
         self.page_index=i; self.stack.setCurrentIndex(i); self.update_nav()
+        if i==1: self.close_room()  # tapping Lights always starts at the room list
         if i==2: self.poll_camera()
 
     def dispatch(self,key,fn,done,onerror=None):
@@ -340,30 +372,58 @@ class Panel(QMainWindow):
         self.home_light_count.setText(f'{on} / {len(lights)} on')
         self.top_summary.setText(f'{on} of {len(lights)} lights on')
         self.bottom_status.setText('\u25cf Connected to Home Assistant' if not self.demo else '\u25cf Demo mode')
-        self.bottom_detail.setText(f'{self.client.url if not self.demo else "offline demo data"}  \u00b7  updated {datetime.now():%H:%M:%S}')
+        self.bottom_detail.setText(f'{self.client.url if not self.demo else "offline demo data"}  \u00b7  updated {datetime.now():%-I:%M:%S %p}')
         self.home_subtitle.setText('All systems ready.' if not self.demo else 'Demo mode · No real devices controlled')
         self.populate_lights(lights)
+        self.refresh_room()
         scenes=self.get_entities('scene','scenes','auto_discover_scenes')
         self.populate_scenes(scenes)
         cameras=self.get_entities('camera','cameras','auto_discover_cameras')
         self.populate_cameras(cameras)
         self.apply_auto_theme()
 
-    def populate_lights(self,lights):
-        ids={s['entity_id'] for s in lights}
-        if set(self.rows)!=ids:
+    def fill_rows(self,layout,rows,entities,on_open,empty):
+        ids=[s['entity_id'] for s in entities]
+        if list(rows)!=ids:
             # remove widgets and their layout entries (also removes the previous spacer)
-            while self.light_layout.count():
-                item=self.light_layout.takeAt(0)
+            while layout.count():
+                item=layout.takeAt(0)
                 if item.widget(): item.widget().deleteLater()
-            self.rows={}
-            for s in lights:
-                row=LightRow(s,self); self.rows[s['entity_id']]=row
-                self.light_layout.addWidget(row)
-            if not lights: self.light_layout.addWidget(label('No light entities found. Configure them in config.json.','small'))
-            self.light_layout.addStretch(1)
+            rows.clear()
+            for s in entities:
+                row=LightRow(s,self,on_open); rows[s['entity_id']]=row
+                layout.addWidget(row)
+            if not entities: layout.addWidget(label(empty,'small'))
+            layout.addStretch(1)
         else:
-            for s in lights: self.rows[s['entity_id']].update_entity(s)
+            for s in entities: rows[s['entity_id']].update_entity(s)
+
+    def populate_lights(self,lights):
+        self.fill_rows(self.light_layout,self.rows,lights,self.open_room,'No light entities found. Configure them in config.json.')
+
+    def open_room(self,entity_id):
+        self.current_room=entity_id; self.lights_views.setCurrentIndex(1); self.refresh_room()
+
+    def close_room(self):
+        self.current_room=None; self.lights_views.setCurrentIndex(0)
+
+    def toggle_room(self):
+        room=self.states.get(self.current_room) if self.current_room else None
+        if room: self.send_action('light','turn_off' if room.get('state')=='on' else 'turn_on',self.current_room)
+
+    def refresh_room(self):
+        if not self.current_room: return
+        room=self.states.get(self.current_room)
+        if not room: self.close_room(); return
+        on=room.get('state')=='on'; available=room.get('state') not in ('unavailable','unknown')
+        self.room_title.setText(friendly(room))
+        self.room_toggle.setText('\u2014' if not available else ('ON' if on else 'OFF'))
+        self.room_toggle.setProperty('kind','primary' if (on and available) else 'secondary')
+        self.room_toggle.style().unpolish(self.room_toggle); self.room_toggle.style().polish(self.room_toggle)
+        self.room_toggle.setEnabled(available)
+        ids=room.get('attributes',{}).get('entity_id') or []
+        members=sorted([self.states[i] for i in ids if i in self.states and i.startswith('light.')],key=friendly)
+        self.fill_rows(self.room_layout,self.room_rows,members,None,'No individual lights found in this room.')
 
     def populate_scenes(self,scenes):
         chosen=[s for s in scenes if s['entity_id'].startswith('scene.')][:3]
@@ -414,7 +474,7 @@ class Panel(QMainWindow):
         if not pix.loadFromData(data):
             self.camera_stamp.setText('Invalid camera snapshot format'); return
         self.preview_image=pix; self.display_preview()
-        self.camera_stamp.setText(f'{eid} · Snapshot {datetime.now():%H:%M:%S} · Not live video')
+        self.camera_stamp.setText(f'{eid} · Snapshot {datetime.now():%-I:%M:%S %p} · Not live video')
 
     def display_preview(self):
         if self.preview_image is not None:
@@ -437,7 +497,7 @@ class Panel(QMainWindow):
 
     def clock_update(self):
         now=datetime.now()
-        self.clock.setText(now.strftime('%H:%M'))
+        self.clock.setText(now.strftime('%-I:%M %p'))
         h=now.hour
         if hasattr(self,'home_header'):
             greet='Good morning' if 5<=h<12 else ('Good afternoon' if 12<=h<18 else 'Good evening')
