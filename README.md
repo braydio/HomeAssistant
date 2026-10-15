@@ -13,7 +13,7 @@ The repo root *is* Home's HA config directory (`/mnt/dietpi_userdata/homeassista
 - `configuration.yaml`, `automations.yaml`, `scripts.yaml`, `scenes.yaml`, `themes/` - Home Assistant config. Panel Day/Night themes, colour scripts and presets, light-panel scenes.
 - `dashboards/` - exported UI-managed state (not stored as YAML by HA): the `home-panel` dashboard, helpers (`input_select`, `input_text`), dashboard list.
 - `birdnet/` - C120 camera 16 kHz audio bridge for BirdNET plus systemd units. Credentials come from an untracked `c120.env` (see `c120.env.example`).
-- `screen/ha-minipanel/` - the native PyQt5 panel (Home / Lights / Cameras / Settings), with tests.
+- `screen/ha-minipanel/` - the native PyQt5 panel (Home / Lights / Cameras, Settings from Home; per-light colour; panel-only room editing), with tests. See `docs/PANEL_*.md`.
 - `screen/system/` - the DietPi autostart supervisor and the pre-debloat service list.
 - `docs/SETUP.md` - how everything fits together, restore steps, rollback.
 

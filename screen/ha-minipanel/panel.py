@@ -3,77 +3,61 @@
 
 Run: python3 panel.py --demo --windowed
 For actual devices: configure config.json and use python3 panel.py --fullscreen
+
+Touch model: some digitizers (QDtech MPI7002 here) only report touches in a middle band. With `touch_band`
+set, the top and bottom strips are display-only and EVERY control (including nav, Back, Done, Move to...) lives
+inside the band. With touch_band=null the same layout simply uses a natural header/footer.
 """
 import argparse
 import json
+import os
+import random
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, QTimer, QSize, QObject, QRunnable, QThreadPool, pyqtSignal
-from PyQt5.QtGui import QPixmap, QFont
-from PyQt5.QtWidgets import (QScroller, QApplication, QFrame, QWidget, QLabel, QMainWindow, QPushButton,
-    QVBoxLayout, QHBoxLayout, QGridLayout, QStackedWidget, QScrollArea, QSlider,
-    QSizePolicy, QButtonGroup)
+from PyQt5.QtCore import Qt, QTimer, QObject, QRunnable, QThreadPool, pyqtSignal
+from PyQt5.QtGui import QPixmap
+from PyQt5.QtWidgets import (QScroller, QApplication, QFrame, QWidget, QMainWindow, QVBoxLayout, QHBoxLayout,
+                             QStackedWidget, QScrollArea, QSizePolicy, QGridLayout)
 
+import camera
+import colors as C
+import settings
+import telemetry
 from ha_client import HAClient, HomeAssistantError
+from layout_model import PanelLayout, LayoutError
+from state_store import StateStore, age_text
+from views import (LightRow, RoomRow, RoomTile, ColorEditor, ColorsView, label, card, layout_v, button,
+                   friendly, available, set_kind, repolish, HIT)
 
+VERSION = '2.0.0'
 ROOT = Path(__file__).resolve().parent
+CONF_DIR = Path.home() / '.config' / 'ha-minipanel'
 WEATHER = {  # HA weather condition -> (glyph, label)
-    'clear-night':('\u263e','Clear night'),'sunny':('\u2600','Sunny'),'cloudy':('\u2601','Cloudy'),
-    'partlycloudy':('\u26c5','Partly cloudy'),'rainy':('\u2602','Rain'),'pouring':('\u2602','Heavy rain'),
-    'lightning':('\u26a1','Thunderstorm'),'lightning-rainy':('\u26a1','Thunderstorms'),'snowy':('\u2744','Snow'),
-    'snowy-rainy':('\u2744','Sleet'),'hail':('\u2744','Hail'),'fog':('\u224b','Fog'),'windy':('\u2248','Windy'),
-    'windy-variant':('\u2248','Windy'),'exceptional':('!','Alert'),
+    'clear-night': ('☾', 'Clear night'), 'sunny': ('☀', 'Sunny'), 'cloudy': ('☁', 'Cloudy'),
+    'partlycloudy': ('⛅', 'Partly cloudy'), 'rainy': ('☂', 'Rain'), 'pouring': ('☂', 'Heavy rain'),
+    'lightning': ('⚡', 'Thunderstorm'), 'lightning-rainy': ('⚡', 'Thunderstorms'), 'snowy': ('❄', 'Snow'),
+    'snowy-rainy': ('❄', 'Sleet'), 'hail': ('❄', 'Hail'), 'fog': ('≋', 'Fog'), 'windy': ('≈', 'Windy'),
+    'windy-variant': ('≈', 'Windy'), 'exceptional': ('!', 'Alert'),
 }
-COMPACT = False  # set from config touch_band; shrinks the UI to fit a short band
-COMPACT_CSS = '''
-        QLabel[role="infoClock"] { font-size: 44px; font-weight: 700; }
-        QLabel[role="hero"] { font-size: 26px; }
-        QLabel[role="heading"] { font-size: 21px; }
-        QPushButton { padding: 2px 12px; }
-'''
-PREFS = Path.home() / '.config' / 'ha-minipanel' / 'preferences.json'
-
+SAFE = 8  # every control stays at least this far inside the touch band
 PALETTES = {
-    'dark': {'bg':'#0D121B','card':'#182333','card2':'#202D41','text':'#F5F8FC','muted':'#98AABD','accent':'#75A9FF','border':'#29374A'},
-    'light': {'bg':'#F5F7FB','card':'#FFFFFF','card2':'#EAF0F8','text':'#142238','muted':'#62748A','accent':'#2563EB','border':'#DFE7F0'}
+    'dark': {'bg': '#0D121B', 'card': '#182333', 'card2': '#202D41', 'text': '#F5F8FC', 'muted': '#98AABD', 'accent': '#75A9FF', 'border': '#29374A', 'danger': '#C4515A'},
+    'light': {'bg': '#F5F7FB', 'card': '#FFFFFF', 'card2': '#EAF0F8', 'text': '#142238', 'muted': '#62748A', 'accent': '#2563EB', 'border': '#DFE7F0', 'danger': '#C03A44'},
 }
+# Lights page sub-views (QStackedWidget indexes)
+V_ROOMS, V_ROOM, V_COLOR, V_COLORS, V_EDIT, V_EDITROOM, V_MOVE = range(7)
+PAGE_HOME, PAGE_LIGHTS, PAGE_CAMERAS, PAGE_SETTINGS = range(4)
 
 
-def label(text='', role='', size=None):
-    w = QLabel(text)
-    if role:
-        w.setProperty('role', role)
-    if size:
-        font = w.font(); font.setPointSize(size); w.setFont(font)
-    w.setWordWrap(True)
-    return w
-
-
-def card():
-    w = QFrame(); w.setObjectName('Card'); return w
-
-
-def layout_v(widget=None, margins=(0,0,0,0), gap=12):
-    v = QVBoxLayout(widget) if widget else QVBoxLayout()
-    v.setContentsMargins(*margins); v.setSpacing(gap); return v
-
-
-def button(text, callback, kind='secondary'):
-    b = QPushButton(text); b.setProperty('kind', kind); b.setCursor(Qt.PointingHandCursor)
-    b.setMinimumHeight(38 if COMPACT else 48); b.clicked.connect(callback); return b
-
-
-def friendly(s):
-    return s.get('attributes',{}).get('friendly_name') or s['entity_id'].split('.',1)[-1].replace('_',' ').title()
-
-
-def dimmable(s):
-    attrs = s.get('attributes', {})
-    modes = attrs.get('supported_color_modes', []) or []
-    return ('brightness' in attrs or any(m not in ('onoff','unknown') for m in modes))
+def geometry(height, band):
+    """(top, bottom) of the interactive band. A configured band is clamped to the screen; otherwise a natural
+    header/footer is used so the layout still works on a fully touch-capable panel."""
+    if band and 0 <= band[0] < band[1] <= height:
+        return int(band[0]), int(band[1])
+    return 84, max(200, height - 70)
 
 
 class JobSignals(QObject):
@@ -83,517 +67,891 @@ class JobSignals(QObject):
 
 class Job(QRunnable):
     def __init__(self, fn):
-        super().__init__(); self.fn=fn; self.signals=JobSignals()
+        super().__init__(); self.fn = fn; self.signals = JobSignals()
+
     def run(self):
         try: self.signals.done.emit(self.fn())
         except Exception as e: self.signals.error.emit(str(e))
 
 
-class LightRow(QFrame):
-    def __init__(self, entity, parent_panel, on_open=None):
-        super().__init__(); self.setObjectName('LightRow')
-        self.panel=parent_panel; self.entity=entity; self.on_open=on_open; self.openable=False; self._press=None
-        h=QHBoxLayout(self); h.setContentsMargins(*((14,3,14,3) if COMPACT else (14,8,14,8))); h.setSpacing(10)
-        names=QVBoxLayout(); names.setSpacing(3)
-        self.title=label(friendly(entity),'rowTitle'); self.meta=label('','small')
-        names.addWidget(self.title); names.addWidget(self.meta)
-        h.addLayout(names,2)
-        self.slider=QSlider(Qt.Horizontal)
-        self.slider.setRange(1,100); self.slider.setSingleStep(5)
-        self.slider.setMinimumWidth(105)
-        self.slider.sliderReleased.connect(self.change_brightness)
-        h.addWidget(self.slider,3)
-        self.toggle=button('On', self.toggle_light, 'primary')
-        self.toggle.setMinimumWidth(78); self.toggle.setMaximumWidth(105)
-        h.addWidget(self.toggle)
-        self.update_entity(entity)
-
-    def update_entity(self, entity):
-        self.entity=entity; attrs=entity.get('attributes',{})
-        on = entity.get('state')=='on'
-        available = entity.get('state') not in ('unavailable','unknown')
-        members=attrs.get('entity_id')
-        self.openable=bool(self.on_open) and isinstance(members,list) and len(members)>0
-        self.title.setText(friendly(entity)+('  \u203a' if self.openable else ''))
-        bri_now=attrs.get('brightness')
-        if not available: self.meta.setText('Unavailable')
-        elif on and bri_now is not None and dimmable(entity): self.meta.setText('On \u00b7 %d%%'%round(bri_now/255*100))
-        else: self.meta.setText('On' if on else 'Off')
-        # the button shows the current STATE (blue = on); tapping it flips the state
-        self.toggle.setText('\u2014' if not available else ('ON' if on else 'OFF'))
-        self.toggle.setProperty('kind','primary' if (on and available) else 'secondary')
-        self.toggle.style().unpolish(self.toggle); self.toggle.style().polish(self.toggle)
-        self.toggle.setEnabled(available)
-        supported=dimmable(entity)
-        self.slider.setVisible(supported)
-        self.slider.setEnabled(on and available and supported)
-        if not self.slider.isSliderDown():
-            bri=attrs.get('brightness')
-            if bri is not None: self.slider.setValue(max(1,round(bri/255*100)))
-
-    def mousePressEvent(self,e):
-        self._press=e.pos(); super().mousePressEvent(e)
-
-    def mouseReleaseEvent(self,e):
-        super().mouseReleaseEvent(e)
-        # a tap (not a drag) on the name area opens the room; buttons/sliders handle their own taps
-        if self.openable and self._press is not None and (e.pos()-self._press).manhattanLength()<14:
-            self.on_open(self.entity['entity_id'])
-        self._press=None
-
-    def toggle_light(self):
-        action = 'turn_off' if self.entity.get('state')=='on' else 'turn_on'
-        self.panel.send_action('light',action,self.entity['entity_id'])
-
-    def change_brightness(self):
-        self.panel.send_action('light','turn_on',self.entity['entity_id'], brightness_pct=self.slider.value())
-
-
 class Panel(QMainWindow):
-    def __init__(self, config, demo=False, fullscreen=True):
+    def __init__(self, config, demo=False, fullscreen=True, size=(1024, 600)):
         super().__init__()
-        self.config=config; self.client=HAClient(config,demo)
-        self.demo=demo; self.states={}; self.rows={}; self.inflight=set(); self.preview_image=None
-        self.pool=QThreadPool.globalInstance(); self.pool.setMaxThreadCount(2)
-        self.override=self.load_preferences().get('theme','auto')
-        self.current_theme='dark'
-        self.page_index=0; self.active_camera=None; self.last_error=''
+        self.config = settings.normalize(config)
+        self.client = HAClient(self.config, demo)
+        self.demo = demo
+        self.store = StateStore()
+        self.inflight = set(); self.pending = 0; self.last_action = {}
+        self.pool = QThreadPool.globalInstance(); self.pool.setMaxThreadCount(2)
+        self.prefs_path = Path(os.path.expanduser(self.config.get('prefs_file', str(CONF_DIR / 'preferences.json'))))
+        self.layout_path = Path(os.path.expanduser(self.config.get('layout_file', str(CONF_DIR / 'layout.json'))))
+        self.prefs = self.load_preferences()
+        self.override = self.prefs.get('theme', 'auto')
+        self.camera_auto = bool(self.prefs.get('camera_auto', self.config['camera_auto_refresh']))
+        self.current_theme = 'dark'; self.page_index = PAGE_HOME
+        self.layout = None; self.room_meta = {}; self.editing = False
+        self.current_room = None; self.edit_room_id = None; self.move_eid = None; self.color_return = V_ROOMS
+        self.reset_pending = False; self.fail_count = 0; self.notice_token = 0
+        self.active_camera = None; self.cam_gen = 0; self.cam_paused = False; self.preview_image = None
+        self.forecast_next = None; self.forecast_at = -1e9; self.last_weather = ''
         self.setWindowTitle('Home Panel | Native Qt')
-        # Some digitizers only report touches in a middle band of the screen (QDtech MPI7002: ~Y 107-449 of 600).
-        # touch_band=[top,bottom] confines the whole UI to that band so every control is reachable.
-        band=config.get('touch_band'); self.compact=bool(band)
-        self.band=(int(band[0]),int(band[1])) if band else None
-        self.resize(1024,600)
+        self.W, self.H = size
+        self.top, self.bot = geometry(self.H, self.config.get('touch_band'))
+        self.resize(self.W, self.H)
         self.build_ui()
         self.set_theme('dark')
         self.clock_update()
         self.poll()
-        self.poll_timer=QTimer(self)
-        self.poll_timer.timeout.connect(self.poll)
-        self.poll_timer.start(max(5,int(config.get('poll_seconds',12)))*1000)
-        self.camera_timer=QTimer(self)
-        self.camera_timer.timeout.connect(self.poll_camera)
-        self.camera_timer.start(max(5,int(config.get('snapshot_seconds',12)))*1000)
-        self.clock_timer=QTimer(self); self.clock_timer.timeout.connect(self.clock_update)
-        self.clock_timer.start(10000)
+        self.poll_timer = QTimer(self); self.poll_timer.timeout.connect(self.poll)
+        self.poll_timer.start(self.config['poll_seconds'] * 1000)
+        self.camera_timer = QTimer(self); self.camera_timer.timeout.connect(self.poll_camera)
+        self.diag_timer = QTimer(self); self.diag_timer.timeout.connect(self.update_diagnostics)
+        self.clock_timer = QTimer(self); self.clock_timer.timeout.connect(self.clock_update)
+        self.clock_timer.start(20000)
         if fullscreen: self.showFullScreen()
         else: self.show()
 
+    # --- state access ------------------------------------------------------------------------------
+    @property
+    def states(self):
+        return self.store.states
+
+    @property
+    def online(self):
+        return self.store.online is True
+
+    # --- preferences ---------------------------------------------------------------------------------
     def load_preferences(self):
-        try: return json.loads(PREFS.read_text())
-        except (FileNotFoundError, ValueError, OSError): return {}
+        try:
+            d = json.loads(self.prefs_path.read_text())
+            return d if isinstance(d, dict) else {}
+        except (FileNotFoundError, ValueError, OSError):
+            return {}
 
     def save_preferences(self):
-        PREFS.parent.mkdir(parents=True, exist_ok=True)
-        PREFS.write_text(json.dumps({'theme':self.override}))
-        PREFS.chmod(0o600)
+        self.prefs.update({'theme': self.override, 'camera_auto': self.camera_auto})
+        self.prefs_path.parent.mkdir(parents=True, exist_ok=True)
+        self.prefs_path.write_text(json.dumps(self.prefs))
+        self.prefs_path.chmod(0o600)
 
+    # --- UI construction -----------------------------------------------------------------------------
     def build_ui(self):
-        root=QWidget(); root.setObjectName('Root'); self.setCentralWidget(root)
-        self.top_greeting=QLabel(); self.top_summary=QLabel(); self.date_label=QLabel()
-        self.bottom_status=QLabel(); self.bottom_detail=QLabel()
-        if self.band:
-            # Dead touch zones (above/below the band) carry information only; every control sits in the band.
-            top,bot=self.band
-            page=layout_v(root,(0,0,0,0),0)
-            topw=QWidget(); topw.setFixedHeight(top); tl=QHBoxLayout(topw); tl.setContentsMargins(24,8,24,8)
-            left=QVBoxLayout(); left.setSpacing(0)
-            self.clock=label('00:00','infoClock'); self.date_label=label('','small')
-            left.addStretch(1); left.addWidget(self.clock); left.addWidget(self.date_label); left.addStretch(1)
-            centre=QVBoxLayout(); centre.setSpacing(2)
-            self.top_greeting=label('','heading'); self.top_summary=label('Checking lights…','rowTitle')
-            centre.addStretch(1); centre.addWidget(self.top_greeting); centre.addWidget(self.top_summary); centre.addStretch(1)
-            right=QVBoxLayout(); right.setSpacing(2)
-            self.theme_status=label('AUTO','small')
-            right.addStretch(1); right.addWidget(label('HOME PANEL','overline')); right.addWidget(self.theme_status); right.addStretch(1)
-            tl.addLayout(left,2); tl.addLayout(centre,3); tl.addLayout(right,1)
-            mid=QWidget(); mid.setFixedHeight(bot-top)
-            outer=layout_v(mid,(18,4,18,4),5)
-            botw=QWidget(); botw.setFixedHeight(600-bot); bl=QVBoxLayout(botw); bl.setContentsMargins(24,10,24,10); bl.setSpacing(3)
-            self.bottom_status=label('Loading weather…','heading'); self.bottom_detail=label('','small')
-            bl.addStretch(1); bl.addWidget(self.bottom_status); bl.addWidget(self.bottom_detail); bl.addStretch(1)
-            page.addWidget(topw); page.addWidget(mid); page.addWidget(botw)
-        else:
-            outer=layout_v(root,(18,12,18,12),9)
-            bar=QHBoxLayout(); bar.setSpacing(12)
-            self.clock=label('00:00','clock'); bar.addWidget(self.clock)
-            bar.addStretch(1); bar.addWidget(label('HOME PANEL','overline'))
-            bar.addStretch(1); self.theme_status=label('AUTO','small'); bar.addWidget(self.theme_status)
-            outer.addLayout(bar)
-        self.stack=QStackedWidget(); outer.addWidget(self.stack,1)
+        root = QWidget(); root.setObjectName('Root'); self.setCentralWidget(root)
+        top, bot = self.top, self.bot
+        page = layout_v(root, (0, 0, 0, 0), 0)
+        # display-only header
+        topw = QWidget(); topw.setFixedHeight(top); tl = QHBoxLayout(topw); tl.setContentsMargins(24, 6, 24, 6)
+        left = QVBoxLayout(); left.setSpacing(0)
+        self.clock = label('0:00 AM', 'infoClock'); self.date_label = label('', 'small')
+        left.addStretch(1); left.addWidget(self.clock); left.addWidget(self.date_label); left.addStretch(1)
+        centre = QVBoxLayout(); centre.setSpacing(2)
+        self.top_greeting = label('', 'heading'); self.top_summary = label('Checking lights…', 'rowTitle')
+        centre.addStretch(1); centre.addWidget(self.top_greeting); centre.addWidget(self.top_summary); centre.addStretch(1)
+        right = QVBoxLayout(); right.setSpacing(2)
+        self.theme_status = label('AUTO', 'small')
+        right.addStretch(1); right.addWidget(label('HOME PANEL', 'overline')); right.addWidget(self.theme_status); right.addStretch(1)
+        tl.addLayout(left, 2); tl.addLayout(centre, 3); tl.addLayout(right, 1)
+        # interactive band
+        mid = QWidget(); mid.setFixedHeight(bot - top)
+        outer = layout_v(mid, (16, SAFE, 16, SAFE), 6)
+        # display-only footer
+        botw = QWidget(); botw.setFixedHeight(self.H - bot); bl = QVBoxLayout(botw); bl.setContentsMargins(24, 8, 24, 8); bl.setSpacing(3)
+        self.bottom_status = label('Loading weather…', 'heading'); self.bottom_detail = label('', 'small')
+        bl.addStretch(1); bl.addWidget(self.bottom_status); bl.addWidget(self.bottom_detail); bl.addStretch(1)
+        page.addWidget(topw); page.addWidget(mid); page.addWidget(botw)
+        self.stack = QStackedWidget(); outer.addWidget(self.stack, 1)
         self.make_home(); self.make_lights(); self.make_cameras(); self.make_settings()
-        navbar=QFrame(); navbar.setObjectName('Nav'); nav=QHBoxLayout(navbar)
-        nav.setContentsMargins(5,4,5,4); nav.setSpacing(6)
-        self.nav_buttons=[]
-        for idx, name in enumerate(('Home','Lights','Cameras','Settings')):
-            b=button(name,lambda checked=False,n=idx:self.switch_page(n),'nav')
-            b.setMinimumHeight(36 if COMPACT else 46); nav.addWidget(b,1); self.nav_buttons.append(b)
+        navbar = QFrame(); navbar.setObjectName('Nav'); nav = QHBoxLayout(navbar)
+        nav.setContentsMargins(5, 3, 5, 3); nav.setSpacing(6)
+        self.nav_buttons = []
+        for idx, name in enumerate(('Home', 'Lights', 'Cameras')):
+            b = button(name, lambda checked=False, n=idx: self.switch_page(n), 'nav'); nav.addWidget(b, 1); self.nav_buttons.append(b)
         outer.addWidget(navbar)
         self.update_nav()
 
-    def section_head(self, title, subtitle):
-        col=QVBoxLayout(); col.setSpacing(2)
-        col.addWidget(label(title,'heading'))
-        if not COMPACT: col.addWidget(label(subtitle,'small'))
-        return col
-
-    def make_home(self):
-        page=QWidget(); body=layout_v(page,(3,2,3,3),12)
-        self.home_header=label('Good evening','heading'); body.addWidget(self.home_header)
-        self.home_subtitle=label('Your home, one touch away.','small'); body.addWidget(self.home_subtitle)
-        if self.compact: self.home_subtitle.setVisible(False); self.home_header.setVisible(False)
-        content=QHBoxLayout(); content.setSpacing(12)
-        lighting=card(); vl=layout_v(lighting,((14,7,14,7) if COMPACT else (18,17,18,17)),12)
-        vl.addWidget(label('LIGHTING','overline')); self.home_light_count=label('Checking lights…','hero')
-        vl.addWidget(self.home_light_count)
-        vl.addWidget(label('Simple controls, without a browser.','small'))
-        vl.addStretch(1)
-        h=QHBoxLayout()
-        h.addWidget(button('Rooms  →',lambda:self.switch_page(1),'primary'),1)
-        h.addWidget(button('All off',self.all_lights_off),1)
-        vl.addLayout(h); content.addWidget(lighting,3)
-        actions=card(); ar=layout_v(actions,((14,7,14,7) if COMPACT else (18,17,18,17)),10)
-        ar.addWidget(label('QUICK SCENES','overline'))
-        self.scene_holder=QVBoxLayout(); self.scene_holder.setSpacing(7)
-        ar.addLayout(self.scene_holder); ar.addStretch(1)
-        ar.addWidget(button('View cameras  →',lambda:self.switch_page(2)))
-        content.addWidget(actions,2)
-        body.addLayout(content,1); self.stack.addWidget(page)
-
     def make_scroll(self):
-        scroll=QScrollArea(); scroll.setWidgetResizable(True)
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         QScroller.grabGesture(scroll.viewport(), QScroller.LeftMouseButtonGesture)  # drag-to-scroll with a finger
-        holder=QWidget(); holder.setObjectName('holder'); holder.setStyleSheet('#holder { background: transparent; }')
+        holder = QWidget(); holder.setObjectName('holder'); holder.setStyleSheet('#holder { background: transparent; }')
         scroll.viewport().setObjectName('vp'); scroll.viewport().setStyleSheet('#vp { background: transparent; }')
-        lay=layout_v(holder,(0,0,0,0),8); lay.addStretch(1); scroll.setWidget(holder)
-        return scroll,lay
+        lay = layout_v(holder, (0, 0, 0, 0), 6); lay.addStretch(1); scroll.setWidget(holder)
+        return scroll, lay
 
-    def make_lights(self):
-        page=QWidget(); pv=layout_v(page,(0,0,0,0),0)
-        self.lights_views=QStackedWidget(); pv.addWidget(self.lights_views)
-        rooms=QWidget(); v=layout_v(rooms,(3,2,3,3),8)
-        v.addLayout(self.section_head('Lights','Tap a room name to see its lights. Slide to dim.'))
-        scroll,self.light_layout=self.make_scroll(); v.addWidget(scroll,1)
-        self.lights_views.addWidget(rooms)
-        room=QWidget(); rv=layout_v(room,(3,2,3,3),8)
-        head=QHBoxLayout(); head.setSpacing(10)
-        self.room_back=button('\u2039  Rooms',self.close_room,'secondary'); self.room_back.setMinimumWidth(110)
-        self.room_title=label('','heading')
-        self.room_toggle=button('OFF',self.toggle_room,'secondary')
-        self.room_toggle.setMinimumWidth(78); self.room_toggle.setMaximumWidth(105)
-        head.addWidget(self.room_back); head.addWidget(self.room_title,1); head.addWidget(self.room_toggle)
-        rv.addLayout(head)
-        rscroll,self.room_layout=self.make_scroll(); rv.addWidget(rscroll,1)
-        self.lights_views.addWidget(room)
-        self.room_rows={}; self.current_room=None
+    # Home ----------------------------------------------------------------------------------------------
+    def make_home(self):
+        page = QWidget(); body = QHBoxLayout(page); body.setContentsMargins(0, 0, 0, 0); body.setSpacing(12)
+        self.tile_grid = QGridLayout(); self.tile_grid.setSpacing(10)
+        gw = QWidget(); gw.setLayout(self.tile_grid)
+        body.addWidget(gw, 3)
+        self.tiles = {}
+        self.home_empty = label('Loading rooms…', 'small')
+        self.tile_grid.addWidget(self.home_empty, 0, 0)
+        side = QVBoxLayout(); side.setSpacing(6)
+        self.scene_holder = QVBoxLayout(); self.scene_holder.setSpacing(6)
+        side.addLayout(self.scene_holder)
+        side.addStretch(1)
+        row = QHBoxLayout(); row.setSpacing(6)
+        row.addWidget(button('All Off', self.all_lights_off, 'danger'), 1)
+        row.addWidget(button('Settings', lambda: self.switch_page(PAGE_SETTINGS), 'secondary'), 1)
+        side.addLayout(row)
+        sw = QWidget(); sw.setLayout(side); body.addWidget(sw, 2)
         self.stack.addWidget(page)
 
+    def populate_home(self):
+        if not self.layout:
+            return
+        fav = [r['id'] for r in self.layout.rooms() if self.room_meta.get(r['id'], {}).get('favorite', True)][:4]
+        if tuple(fav) != tuple(self.tiles):
+            while self.tile_grid.count():
+                it = self.tile_grid.takeAt(0)
+                if it.widget(): it.widget().deleteLater()
+            self.tiles = {}
+            for i, rid in enumerate(fav):
+                t = RoomTile(self, rid); self.tiles[rid] = t; self.tile_grid.addWidget(t, i // 2, i % 2)
+            if not fav:
+                self.tile_grid.addWidget(label('No favourite rooms. Add rooms in config.json.', 'small'), 0, 0)
+            for r in range(2): self.tile_grid.setRowStretch(r, 1)
+            for c in range(2): self.tile_grid.setColumnStretch(c, 1)
+        for t in self.tiles.values():
+            t.refresh()
+
+    def populate_scenes(self):
+        sigs = tuple(s['entity_id'] for s in self.config['scenes'] if s['entity_id'] in self.states)[:3]
+        if getattr(self, 'scene_signature', None) == sigs:
+            return
+        self.scene_signature = sigs
+        while self.scene_holder.count():
+            it = self.scene_holder.takeAt(0)
+            if it.widget(): it.widget().deleteLater()
+        if not sigs:
+            self.scene_holder.addWidget(label('No scenes yet.', 'small'))
+        labels = {s['entity_id']: s.get('label') for s in self.config['scenes']}
+        for eid in sigs:
+            name = labels.get(eid) or friendly(self.states[eid]).replace('Panel ', '').replace(' Lights', '')
+            b = button(name, None, 'secondary')
+            b.clicked.connect(lambda checked=False, e=eid, bb=b: self.send_action('scene', 'turn_on', [e], button=bb))
+            self.scene_holder.addWidget(b)
+
+    # Lights --------------------------------------------------------------------------------------------
+    def make_lights(self):
+        page = QWidget(); pv = layout_v(page, (0, 0, 0, 0), 6)
+        self.lights_head = QWidget(); hh = QHBoxLayout(self.lights_head); hh.setContentsMargins(0, 0, 0, 0); hh.setSpacing(8)
+        self.seg_rooms = button('Rooms', lambda: self.show_view(V_ROOMS), 'primary'); self.seg_colors = button('Colors', lambda: self.show_view(V_COLORS), 'secondary')
+        self.edit_btn = button('Edit layout', self.start_edit, 'secondary')
+        hh.addWidget(self.seg_rooms, 2); hh.addWidget(self.seg_colors, 2); hh.addStretch(1); hh.addWidget(self.edit_btn, 2)
+        pv.addWidget(self.lights_head)
+        self.lights_views = QStackedWidget(); pv.addWidget(self.lights_views, 1)
+        # V_ROOMS
+        w = QWidget(); v = layout_v(w, (0, 0, 0, 0), 0)
+        scroll, self.room_list = self.make_scroll(); v.addWidget(scroll); self.room_rows = {}
+        self.lights_views.addWidget(w)
+        # V_ROOM
+        w = QWidget(); rv = layout_v(w, (0, 0, 0, 0), 6)
+        head = QHBoxLayout(); head.setSpacing(8)
+        self.room_back = button('‹  Rooms', self.close_room, 'secondary'); self.room_back.setFixedWidth(112)
+        self.room_title = label('', 'heading', wrap=False)
+        self.room_color = button('Color', self.open_room_color, 'secondary'); self.room_color.setFixedWidth(84)
+        self.room_toggle = button('OFF', lambda: self.toggle_room(self.current_room, self.room_toggle), 'secondary'); self.room_toggle.setFixedWidth(84)
+        head.addWidget(self.room_back); head.addWidget(self.room_title, 1); head.addWidget(self.room_color); head.addWidget(self.room_toggle)
+        rv.addLayout(head)
+        rscroll, self.room_layout = self.make_scroll(); rv.addWidget(rscroll, 1); self.room_light_rows = {}
+        self.lights_views.addWidget(w)
+        # V_COLOR (one reusable editor) and V_COLORS (global target + presets)
+        self.editor = ColorEditor(self); self.lights_views.addWidget(self.editor)
+        self.colors_view = ColorsView(self); self.lights_views.addWidget(self.colors_view)
+        # V_EDIT
+        w = QWidget(); ev = layout_v(w, (0, 0, 0, 0), 6)
+        self.edit_head = QHBoxLayout(); self.edit_head.setSpacing(8); ev.addLayout(self.edit_head)
+        ev.addWidget(label('Organize this panel (does not change Home Assistant rooms). Room buttons and All Off use these lights only.', 'small'))
+        escroll, self.edit_list = self.make_scroll(); ev.addWidget(escroll, 1)
+        self.lights_views.addWidget(w)
+        # V_EDITROOM
+        w = QWidget(); er = layout_v(w, (0, 0, 0, 0), 6)
+        head = QHBoxLayout(); head.setSpacing(8)
+        head.addWidget(button('‹  Layout', self.edit_back, 'secondary'))
+        self.edit_room_title = label('', 'heading', wrap=False); head.addWidget(self.edit_room_title, 1)
+        er.addLayout(head)
+        erscroll, self.edit_room_list = self.make_scroll(); er.addWidget(erscroll, 1)
+        self.lights_views.addWidget(w)
+        # V_MOVE
+        w = QWidget(); mv = layout_v(w, (0, 0, 0, 0), 6)
+        head = QHBoxLayout(); head.setSpacing(8)
+        head.addWidget(button('Cancel', self.cancel_move, 'secondary'))
+        self.move_title = label('', 'heading', wrap=False); head.addWidget(self.move_title, 1)
+        mv.addLayout(head)
+        mscroll, self.move_list = self.make_scroll(); mv.addWidget(mscroll, 1)
+        self.lights_views.addWidget(w)
+        self.stack.addWidget(page)
+        self.show_view(V_ROOMS)
+
+    def show_view(self, idx):
+        self.lights_views.setCurrentIndex(idx)
+        self.lights_head.setVisible(idx in (V_ROOMS, V_COLORS))
+        if idx in (V_ROOMS, V_COLORS):
+            set_kind(self.seg_rooms, 'primary' if idx == V_ROOMS else 'secondary')
+            set_kind(self.seg_colors, 'primary' if idx == V_COLORS else 'secondary')
+            self.edit_btn.setVisible(idx == V_ROOMS)
+        if idx == V_COLORS:
+            self.colors_view.refresh()
+
+    def room_summary(self, room_id):
+        if not self.layout:
+            return ('', 0, 0, 0)
+        try: room = self.layout.room(room_id)
+        except LayoutError: return ('', 0, 0, 0)
+        sts = [self.states.get(e) for e in room['lights']]
+        avail = sum(1 for s in sts if available(s)); on = sum(1 for s in sts if s and s.get('state') == 'on')
+        return (room['label'], on, avail, len(sts))
+
+    def toggle_room(self, room_id, btn=None):
+        if not self.layout or not room_id: return
+        # Act only on this panel room's individual lights, never on an HA group that may differ after edits.
+        sts = {e: self.states.get(e) for e in self.layout.room(room_id)['lights']}
+        ids = [e for e, s in sts.items() if available(s)]
+        if not ids: return
+        any_on = any(sts[e].get('state') == 'on' for e in ids)
+        self.send_action('light', 'turn_off' if any_on else 'turn_on', ids, button=btn)
+
+    def populate_rooms(self):
+        if not self.layout: return
+        ids = [r['id'] for r in self.layout.rooms()]
+        if list(self.room_rows) != ids:
+            while self.room_list.count():
+                it = self.room_list.takeAt(0)
+                if it.widget(): it.widget().deleteLater()
+            self.room_rows = {}
+            for rid in ids:
+                row = RoomRow(self, rid); self.room_rows[rid] = row; self.room_list.addWidget(row)
+            self.room_list.addStretch(1)
+        else:
+            for row in self.room_rows.values(): row.refresh()
+
+    def open_room(self, room_id):
+        if self.editing: return
+        self.current_room = room_id; self.show_view(V_ROOM); self.refresh_room()
+
+    def close_room(self):
+        self.current_room = None; self.show_view(V_ROOMS)
+
+    def refresh_room(self):
+        if not self.current_room or not self.layout: return
+        try: room = self.layout.room(self.current_room)
+        except LayoutError: self.close_room(); return
+        label_, on, avail, total = self.room_summary(self.current_room)
+        self.room_title.setText(label_)
+        self.room_toggle.setText('—' if not avail else ('ON' if on else 'OFF'))
+        set_kind(self.room_toggle, 'primary' if on and avail else 'secondary')
+        self.room_toggle.setEnabled(avail > 0 and self.online)
+        self.room_color.setEnabled(avail > 0 and self.online)
+        ids = list(room['lights'])
+        if list(self.room_light_rows) != ids:
+            while self.room_layout.count():
+                it = self.room_layout.takeAt(0)
+                if it.widget(): it.widget().deleteLater()
+            self.room_light_rows = {}
+            for e in ids:
+                r = LightRow(self, e); self.room_light_rows[e] = r; self.room_layout.addWidget(r)
+            if not ids: self.room_layout.addWidget(label('No lights in this room.', 'small'))
+            self.room_layout.addStretch(1)
+        else:
+            for r in self.room_light_rows.values(): r.refresh()
+
+    # colour editors
+    def open_color(self, ids):
+        self.color_return = V_ROOM if self.current_room else V_ROOMS
+        title = friendly(self.states[ids[0]]) if len(ids) == 1 and ids[0] in self.states else 'Room colour'
+        self.editor.open(ids, title); self.show_view(V_COLOR)
+
+    def open_room_color(self):
+        if self.current_room and self.layout:
+            self.open_color(list(self.layout.room(self.current_room)['lights']))
+            self.editor.title.setText(self.layout.room(self.current_room)['label'] + ' · all lights')
+            self.editor._title = self.layout.room(self.current_room)['label'] + ' · all lights'
+
+    def close_color(self):
+        self.show_view(self.color_return if self.color_return != V_ROOM or self.current_room else V_ROOMS)
+
+    def apply_colors(self, ids, choice, brightness, name, btn=None):
+        groups = {}
+        for e in ids:
+            data = C.build_payload(self.states.get(e), choice, brightness)
+            if data is None: continue
+            groups.setdefault(json.dumps(data, sort_keys=True), []).append(e)
+        n = sum(len(v) for v in groups.values())
+        if not n:
+            self.notice('No selected light supports that colour'); return
+        for key, members in groups.items():
+            self.send_action('light', 'turn_on', members, button=btn if members is next(iter(groups.values())) else None, **json.loads(key))
+        skipped = len(ids) - n
+        self.notice(f'{name}: sent to {n} light{"s" if n != 1 else ""}' + (f' ({skipped} skipped)' if skipped else ''))
+        QTimer.singleShot(1500, self.poll)
+
+    # global colour helper (existing HA scripts and helpers)
+    def color_options(self):
+        t = (self.config.get('colors') or {}).get('target_entity')
+        return list((self.states.get(t, {}).get('attributes') or {}).get('options') or [])
+
+    def color_target(self):
+        t = (self.config.get('colors') or {}).get('target_entity')
+        s = self.states.get(t)
+        return s.get('state') if s and s.get('state') not in ('unknown', 'unavailable') else ''
+
+    def cycle_target(self, d):
+        opts = self.color_options(); cur = self.color_target()
+        if not opts: return
+        nxt = opts[(opts.index(cur) + d) % len(opts)] if cur in opts else opts[0]
+        self.send_action('input_select', 'select_option', [self.config['colors']['target_entity']], option=nxt)
+
+    def preset_value(self, slot):
+        s = self.states.get(f'input_text.home_panel_preset_{slot}')
+        v = (s or {}).get('state')
+        return v if v and v not in ('unknown', 'unavailable') else ''
+
+    def _script(self, key, **variables):
+        sid = (self.config.get('colors') or {}).get(key)
+        if sid: self.send_action('script', 'turn_on', [sid], variables=variables)
+        else: self.notice('Colour scripts are not configured')
+
+    def apply_global_color(self, choice, btn=None):
+        kind, value, name = choice
+        if kind == 'rgb': self._script('apply_script', rgb=list(value))
+        else: self._script('apply_script', kelvin=int(value))
+        self.notice(f'{name} sent to {self.color_target() or "target"}')
+
+    def apply_preset(self, slot):
+        self._script('preset_script', slot=slot); self.notice(f'Preset {slot} applied')
+
+    def save_preset(self, slot):
+        self._script('save_script', slot=slot); self.notice(f'Saved to preset {slot}')
+        QTimer.singleShot(1500, self.poll)
+
+    # edit layout ------------------------------------------------------------------------------------------
+    def start_edit(self):
+        if not self.layout: return
+        self.editing = True; self.reset_pending = False
+        self.layout.cancel()
+        self.render_edit(); self.show_view(V_EDIT)
+
+    def clear_layout(self, lay, keep_stretch=True):
+        while lay.count():
+            it = lay.takeAt(0)
+            if it.widget(): it.widget().deleteLater()
+
+    def render_edit(self):
+        self.clear_layout(self.edit_head)
+        if self.reset_pending:
+            self.edit_head.addWidget(label('Reset every room to its default?', 'rowTitle', wrap=False), 2)
+            self.edit_head.addWidget(button('Yes, reset', self.do_reset, 'danger'), 1)
+            self.edit_head.addWidget(button('No', self.cancel_reset, 'secondary'), 1)
+        else:
+            self.edit_head.addWidget(button('Done', self.finish_edit, 'primary'), 1)
+            self.edit_head.addWidget(button('Cancel', self.cancel_edit, 'secondary'), 1)
+            self.edit_head.addWidget(button('Reset', self.ask_reset, 'secondary'), 1)
+        self.clear_layout(self.edit_list)
+        rooms = self.layout.rooms()
+        for i, r in enumerate(rooms):
+            row = QFrame(); row.setObjectName('LightRow'); row.setMinimumHeight(56)
+            h = QHBoxLayout(row); h.setContentsMargins(14, 4, 10, 4); h.setSpacing(8)
+            names = QVBoxLayout(); names.setSpacing(1)
+            names.addWidget(label(r['label'], 'rowTitle', wrap=False)); names.addWidget(label(f'{len(r["lights"])} lights', 'small', wrap=False))
+            h.addLayout(names, 1)
+            up = button('▲', lambda checked=False, rid=r['id'], k=i: self.move_room(rid, k - 1), 'secondary'); up.setFixedWidth(56); up.setEnabled(i > 0)
+            dn = button('▼', lambda checked=False, rid=r['id'], k=i: self.move_room(rid, k + 1), 'secondary'); dn.setFixedWidth(56); dn.setEnabled(i < len(rooms) - 1)
+            h.addWidget(up); h.addWidget(dn)
+            h.addWidget(button('Lights ›', lambda checked=False, rid=r['id']: self.edit_room(rid), 'secondary'))
+            self.edit_list.addWidget(row)
+        self.edit_list.addStretch(1)
+
+    def move_room(self, rid, idx):
+        self.layout.reorder_room(rid, idx); self.render_edit()
+
+    def ask_reset(self):
+        self.reset_pending = True; self.render_edit()
+
+    def cancel_reset(self):
+        self.reset_pending = False; self.render_edit()
+
+    def do_reset(self):
+        self.layout.reset_to_defaults(); self.reset_pending = False; self.render_edit()
+
+    def cancel_edit(self):
+        self.layout.cancel(); self.leave_edit()
+
+    def finish_edit(self):
+        try:
+            self.layout.commit_atomic()
+        except (LayoutError, OSError) as e:
+            self.notice('Could not save layout: ' + str(e)[:60]); return
+        self.leave_edit()
+        self.notice('Layout saved on this panel')
+
+    def leave_edit(self):
+        self.editing = False; self.reset_pending = False
+        self.room_rows = {}; self.room_light_rows = {}
+        self.refresh_all(); self.show_view(V_ROOMS)
+
+    def edit_room(self, rid):
+        self.edit_room_id = rid; self.render_edit_room(); self.show_view(V_EDITROOM)
+
+    def edit_back(self):
+        self.render_edit(); self.show_view(V_EDIT)
+
+    def render_edit_room(self):
+        room = self.layout.room(self.edit_room_id)
+        self.edit_room_title.setText(room['label'])
+        self.clear_layout(self.edit_room_list)
+        n = len(room['lights'])
+        if not n:
+            self.edit_room_list.addWidget(label('No lights in this room. Use "Move to…" on another room\'s light.', 'small'))
+        for i, e in enumerate(room['lights']):
+            st = self.states.get(e)
+            row = QFrame(); row.setObjectName('LightRow'); row.setMinimumHeight(52)
+            h = QHBoxLayout(row); h.setContentsMargins(14, 4, 10, 4); h.setSpacing(8)
+            names = QVBoxLayout(); names.setSpacing(1)
+            names.addWidget(label(friendly(st) if st else e, 'rowTitle', wrap=False))
+            names.addWidget(label('Unavailable' if not available(st) else 'Available', 'small', wrap=False))
+            h.addLayout(names, 1)
+            h.addWidget(button('Move to…', lambda checked=False, eid=e: self.pick_destination(eid), 'secondary'))
+            up = button('▲', lambda checked=False, eid=e, k=i: self.move_light_in_room(eid, k - 1), 'secondary'); up.setFixedWidth(56); up.setEnabled(i > 0)
+            dn = button('▼', lambda checked=False, eid=e, k=i: self.move_light_in_room(eid, k + 1), 'secondary'); dn.setFixedWidth(56); dn.setEnabled(i < n - 1)
+            h.addWidget(up); h.addWidget(dn)
+            self.edit_room_list.addWidget(row)
+        self.edit_room_list.addStretch(1)
+
+    def move_light_in_room(self, eid, idx):
+        self.layout.reorder_light(self.edit_room_id, eid, idx); self.render_edit_room()
+
+    def pick_destination(self, eid):
+        self.move_eid = eid
+        st = self.states.get(eid)
+        self.move_title.setText('Move ' + (friendly(st) if st else eid) + ' to…')
+        self.clear_layout(self.move_list)
+        src = self.layout.room_of(eid)
+        grid = QGridLayout(); grid.setSpacing(8)
+        gw = QWidget(); gw.setLayout(grid)
+        dests = [r for r in self.layout.rooms() if r['id'] != src]
+        for i, r in enumerate(dests):
+            grid.addWidget(button(r['label'], lambda checked=False, rid=r['id']: self.do_move(rid), 'secondary'), i // 3, i % 3)
+        for c in range(3): grid.setColumnStretch(c, 1)
+        self.move_list.addWidget(gw); self.move_list.addStretch(1)
+        self.show_view(V_MOVE)
+
+    def do_move(self, rid):
+        try: self.layout.move_light(self.move_eid, rid)
+        except LayoutError as e: self.notice(str(e))
+        self.render_edit_room(); self.show_view(V_EDITROOM)
+
+    def cancel_move(self):
+        self.show_view(V_EDITROOM)
+
+    # layout synchronisation with live HA ------------------------------------------------------------------
+    def sync_layout(self):
+        if self.editing: return
+        defaults = settings.default_rooms(self.config, self.states)
+        if not defaults: return
+        ddata = {'version': 1, 'rooms': [{'id': d['id'], 'label': d['label'], 'order': d['order'], 'lights': d['lights']} for d in defaults]}
+        allowed = settings.individual_light_ids(self.states) | {l for d in defaults for l in d['lights']}
+        if self.layout is None:
+            try:
+                self.layout = PanelLayout.load(self.layout_path, ddata, allowed)
+            except LayoutError as e:
+                self.notice('Layout defaults invalid: ' + str(e)[:50]); return
+            self.room_meta = {d['id']: {'favorite': d['favorite'], 'source': d['source']} for d in defaults}
+            for r in self.layout.rooms():
+                self.room_meta.setdefault(r['id'], {'favorite': False, 'source': None})
+        self.layout.allowed = allowed
+        # expand groups that were not resolvable earlier, and add new members of configured groups
+        placed = set(self.layout.all_lights())
+        for room in self.layout.rooms():
+            new = []
+            for e in room['lights']:
+                if settings.is_group(self.states.get(e)):
+                    new.extend(m for m in settings.members_of(self.states, e) if m not in placed or m in new)
+                    placed.discard(e)
+                else:
+                    new.append(e)
+            room['lights'] = list(dict.fromkeys(new))
+        placed = set(self.layout.all_lights())
+        for d in defaults:
+            try: room = self.layout.room(d['id'])
+            except LayoutError: continue
+            for m in d['lights']:
+                if m not in placed and m in allowed:
+                    room['lights'].append(m); placed.add(m)
+        self.layout.saved = json.loads(json.dumps(self.layout.data))
+
+    # --- cameras ----------------------------------------------------------------------------------------
     def make_cameras(self):
-        page=QWidget(); v=layout_v(page,(3,2,3,3),8)
-        v.addLayout(self.section_head('Cameras','One preview at a time to save memory.'))
-        self.camera_choice=QHBoxLayout(); self.camera_choice.setSpacing(8); v.addLayout(self.camera_choice)
-        view=card(); inner=layout_v(view,(12,12,12,12),6)
-        self.camera_view=label('Select a camera to load a snapshot.','cameraPlaceholder')
+        page = QWidget(); h = QHBoxLayout(page); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(10)
+        view = card(); inner = layout_v(view, (10, 8, 10, 8), 4)
+        self.camera_view = label('No camera available', 'cameraPlaceholder', wrap=True)
         self.camera_view.setAlignment(Qt.AlignCenter)
-        self.camera_view.setMinimumHeight(180)
-        self.camera_view.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding)
-        inner.addWidget(self.camera_view,1)
-        self.camera_stamp=label('Snapshots refresh only on this page.','small')
-        inner.addWidget(self.camera_stamp)
-        v.addWidget(view,1); self.stack.addWidget(page)
+        self.camera_view.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        inner.addWidget(self.camera_view, 1)
+        self.camera_stamp = label('', 'small', wrap=False); inner.addWidget(self.camera_stamp)
+        h.addWidget(view, 3)
+        side = QVBoxLayout(); side.setSpacing(6)
+        side.addWidget(label('CAMERAS', 'overline'))
+        cscroll, self.camera_choice = self.make_scroll(); side.addWidget(cscroll, 1)
+        self.refresh_btn = button('Refresh', lambda: self.poll_camera(True), 'primary')
+        self.pause_btn = button('Pause', self.toggle_pause, 'secondary')
+        side.addWidget(self.refresh_btn); side.addWidget(self.pause_btn)
+        sw = QWidget(); sw.setLayout(side); sw.setFixedWidth(210); h.addWidget(sw)
+        self.stack.addWidget(page)
+        self.camera_buttons = {}
+        self.render_no_camera()
 
+    def camera_ids(self):
+        want = self.config['camera_entities']
+        if want: return [e for e in want if e in self.states]
+        if self.config.get('auto_discover_cameras', False):
+            return sorted(e for e in self.states if e.startswith('camera.'))
+        return []
+
+    def render_no_camera(self):
+        self.camera_view.setText('No camera available\n\nHome Assistant has no camera entity configured for this panel.')
+        self.camera_stamp.setText('Manual refresh only · not live video')
+        self.refresh_btn.setEnabled(False); self.pause_btn.setEnabled(False)
+
+    def populate_cameras(self):
+        ids = self.camera_ids()
+        if tuple(ids) == tuple(self.camera_buttons): return
+        self.clear_layout(self.camera_choice); self.camera_buttons = {}
+        for e in ids:
+            b = button(friendly(self.states[e]), lambda checked=False, x=e: self.select_camera(x), 'secondary')
+            self.camera_buttons[e] = b; self.camera_choice.addWidget(b)
+        self.camera_choice.addStretch(1)
+        if self.active_camera not in ids:
+            self.active_camera = ids[0] if ids else None
+            self.free_preview()
+        if not ids: self.render_no_camera()
+        else:
+            self.refresh_btn.setEnabled(True); self.pause_btn.setEnabled(True)
+            self.camera_view.setText('Tap Refresh to load a snapshot.')
+            self.mark_camera()
+
+    def mark_camera(self):
+        for e, b in self.camera_buttons.items(): set_kind(b, 'primary' if e == self.active_camera else 'secondary')
+
+    def select_camera(self, eid):
+        self.active_camera = eid; self.cam_gen += 1; self.free_preview(); self.mark_camera()
+        self.camera_view.setText('Loading snapshot…'); self.poll_camera(True)
+
+    def toggle_pause(self):
+        self.cam_paused = not self.cam_paused
+        self.pause_btn.setText('Resume' if self.cam_paused else 'Pause')
+        set_kind(self.pause_btn, 'primary' if self.cam_paused else 'secondary')
+
+    def free_preview(self):
+        self.preview_image = None
+        self.camera_view.clear() if self.camera_ids() else None
+
+    def poll_camera(self, manual=False):
+        if self.page_index != PAGE_CAMERAS or not self.active_camera or not self.online: return
+        if self.cam_paused and manual is not True: return
+        eid, gen = self.active_camera, self.cam_gen
+        maxpx = self.config['camera_max_decoded_pixels']
+
+        def work():
+            data = self.client.camera_snapshot(eid)
+            return camera.decode_bounded(data, max_pixels=maxpx) if data else None
+        self.dispatch('camera', work, lambda img: self.camera_ready(eid, gen, img),
+                      lambda e: self.camera_stamp.setText('Snapshot unavailable: ' + e[:80]))
+
+    def camera_ready(self, eid, gen, img):
+        if gen != self.cam_gen or eid != self.active_camera or self.page_index != PAGE_CAMERAS:
+            return  # stale result: page changed or another camera selected
+        if img is None:
+            self.camera_view.setText('Demo mode: no snapshot'); return
+        pix = QPixmap.fromImage(img)
+        self.preview_image = pix.scaled(self.camera_view.size(), Qt.KeepAspectRatio, Qt.FastTransformation)
+        self.camera_view.setPixmap(self.preview_image)
+        self.camera_stamp.setText(f'{friendly(self.states.get(eid, {"entity_id": eid}))} · {datetime.now():%-I:%M:%S %p} · not live')
+
+    # --- settings ---------------------------------------------------------------------------------------
     def make_settings(self):
-        page=QWidget(); v=layout_v(page,(3,2,3,3),12)
-        v.addLayout(self.section_head('Settings','Display and connection'))
-        block=card(); inner=layout_v(block,(18,12,18,12),9)
-        inner.addWidget(label('APPEARANCE','overline'))
-        choices=QHBoxLayout(); choices.setSpacing(9); self.theme_buttons={}
-        for theme in ('auto','light','dark'):
-            b=button(theme.title(),lambda checked=False,t=theme:self.set_override(t),'secondary')
-            choices.addWidget(b); self.theme_buttons[theme]=b
+        page = QWidget(); v = layout_v(page, (0, 0, 0, 0), 6)
+        head = QHBoxLayout(); head.setSpacing(8)
+        head.addWidget(button('‹  Back', lambda: self.switch_page(PAGE_HOME), 'secondary'))
+        head.addWidget(label('Settings & diagnostics', 'heading', wrap=False), 1)
+        head.addWidget(button('Refresh now', self.poll, 'primary'))
+        v.addLayout(head)
+        body = QHBoxLayout(); body.setSpacing(10)
+        block = card(); inner = layout_v(block, (14, 8, 14, 8), 6)
+        inner.addWidget(label('APPEARANCE', 'overline'))
+        choices = QHBoxLayout(); choices.setSpacing(8); self.theme_buttons = {}
+        for theme in ('auto', 'light', 'dark'):
+            b = button(theme.title(), lambda checked=False, t=theme: self.set_override(t), 'secondary')
+            choices.addWidget(b); self.theme_buttons[theme] = b
         inner.addLayout(choices)
-        inner.addWidget(label('Auto follows Home Assistant sun.sun; uses local clock when unavailable.','small'))
-        v.addWidget(block)
-        status=card(); st=layout_v(status,(18,12,18,12),10)
-        st.addWidget(label('CONNECTION','overline'))
-        self.connection=label('Connecting…','rowTitle'); st.addWidget(self.connection)
-        st.addWidget(label(self.client.url if not self.demo else 'Offline demo data','small'))
-        self.system_details=label('Pi Zero 2 W · Native Qt client · No Chromium','small')
-        st.addWidget(self.system_details); v.addWidget(status)
-        v.addStretch(1); self.stack.addWidget(page)
-        self.update_theme_buttons()
+        inner.addWidget(label('Auto follows sun.sun (local clock if offline). This is separate from the HA dashboard theme.', 'small'))
+        self.cam_pref = button('', self.toggle_camera_pref, 'secondary'); inner.addWidget(self.cam_pref)
+        inner.addStretch(1)
+        body.addWidget(block, 1)
+        status = card(); st = layout_v(status, (14, 8, 14, 8), 4)
+        st.addWidget(label('DIAGNOSTICS', 'overline'))
+        self.diag = label('', 'small'); st.addWidget(self.diag); st.addStretch(1)
+        body.addWidget(status, 1)
+        v.addLayout(body, 1); self.stack.addWidget(page)
+        self.update_theme_buttons(); self.update_cam_pref()
 
+    def toggle_camera_pref(self):
+        self.camera_auto = not self.camera_auto; self.save_preferences(); self.update_cam_pref()
+
+    def update_cam_pref(self):
+        self.cam_pref.setText('Camera: refresh every %d s' % self.config['snapshot_seconds'] if self.camera_auto else 'Camera: manual refresh only')
+
+    def update_diagnostics(self):
+        if self.page_index != PAGE_SETTINGS: return
+        ha = ('Connected' if self.online else 'Offline') if not self.demo else 'Demo mode'
+        c = telemetry.COUNTERS
+        t = telemetry.cpu_temp_c(); up = telemetry.uptime_s()
+        lines = [f'Home Assistant: {ha} · last update {age_text(self.store.age())}',
+                 f'Panel memory: {telemetry.mib(telemetry.rss_kib()) or "?"} MiB · {telemetry.mib(telemetry.mem_available_kib()) or "?"} MiB free',
+                 f'CPU temp: {"%.0f °C" % t if t is not None else "n/a"} · uptime {int(up // 3600)} h {int(up % 3600 // 60)} m' if up is not None else 'CPU temp: n/a',
+                 f'HA fetches {c["ha_state_requests"]} ({c["ha_state_bytes"] // 1024} KiB) · actions {c["ha_actions"]} · errors {c["network_errors"]}',
+                 f'Native Qt panel v{VERSION} · no browser']
+        self.diag.setText('\n'.join(lines))
+
+    # --- navigation ---------------------------------------------------------------------------------------
     def update_nav(self):
-        for i,b in enumerate(self.nav_buttons):
-            b.setProperty('active',str(i==self.page_index).lower())
-            b.style().unpolish(b); b.style().polish(b)
+        for i, b in enumerate(self.nav_buttons):
+            b.setProperty('active', str(i == self.page_index).lower()); repolish(b)
 
     def switch_page(self, i):
-        self.page_index=i; self.stack.setCurrentIndex(i); self.update_nav()
-        if i==1: self.close_room()  # tapping Lights always starts at the room list
-        if i==2: self.poll_camera()
+        leaving_cameras = self.page_index == PAGE_CAMERAS and i != PAGE_CAMERAS
+        self.page_index = i; self.stack.setCurrentIndex(i); self.update_nav()
+        if leaving_cameras:
+            self.cam_gen += 1; self.camera_timer.stop(); self.preview_image = None; self.camera_view.clear()
+            if not self.camera_ids(): self.render_no_camera()
+            else: self.camera_view.setText('Tap Refresh to load a snapshot.')
+        if i == PAGE_LIGHTS:
+            if not self.editing and self.lights_views.currentIndex() not in (V_COLORS,): self.close_room()
+        if i == PAGE_CAMERAS and self.camera_ids():
+            self.camera_view.setText('Loading snapshot…')
+            self.poll_camera(True)
+            if self.camera_auto: self.camera_timer.start(self.config['snapshot_seconds'] * 1000)
+        if i == PAGE_SETTINGS:
+            self.update_diagnostics(); self.diag_timer.start(5000)
+        else:
+            self.diag_timer.stop()
 
-    def dispatch(self,key,fn,done,onerror=None):
+    # --- network/dispatch -----------------------------------------------------------------------------------
+    def dispatch(self, key, fn, done, onerror=None):
         if key in self.inflight: return
         self.inflight.add(key)
-        job=Job(fn)
+        job = Job(fn)
+
         def ok(value):
             self.inflight.discard(key); done(value)
+
         def fail(err):
             self.inflight.discard(key)
             if onerror: onerror(err)
-            else: self.report_error(err)
         job.signals.done.connect(ok); job.signals.error.connect(fail)
         self.pool.start(job)
 
+    def keep(self, eid):
+        d = eid.split('.', 1)[0]
+        colors = self.config.get('colors') or {}
+        if d in ('light', 'weather') or eid == 'sun.sun': return True
+        if d == 'scene': return eid in {s['entity_id'] for s in self.config['scenes']}
+        if d == 'camera': return bool(self.config['camera_entities']) and eid in self.config['camera_entities'] or (not self.config['camera_entities'] and self.config.get('auto_discover_cameras', False))
+        if eid == colors.get('target_entity'): return True
+        return eid.startswith('input_text.home_panel_preset_')
+
     def poll(self):
-        self.dispatch('states',self.client.states,self.update_states, self.connection_error)
+        self.dispatch('states', lambda: self.client.states(self.keep), self.update_states, self.connection_error)
 
-    def connection_error(self,err):
-        self.connection.setText('Offline / connection error')
-        self.last_error=err
-        self.home_subtitle.setText('Cannot reach Home Assistant. Check connection.')
-        self.home_light_count.setText('Home is offline')
+    def connection_error(self, err):
+        was = self.store.online
+        self.store.failed(); self.fail_count += 1
+        telemetry.note('offline: ' + err[:40])
+        delay = [5, 10, 30, 60][min(self.fail_count, 4) - 1]
+        self.poll_timer.setInterval(int(delay * random.uniform(0.9, 1.1) * 1000))
+        self.render_offline(delay)
+        if was is not False: self.refresh_all()
+
+    def render_offline(self, delay=None):
+        age = age_text(self.store.age())
         self.top_summary.setText('Home is offline')
-        self.bottom_status.setText('\u25cb Home is offline')
-        self.bottom_detail.setText(f'Retrying every {int(self.config.get("poll_seconds",12))} seconds')
+        self.bottom_status.setText('○ Home is offline')
+        d = f'Showing last known data from {age}.'
+        if delay: d += f' Retrying in {delay} s.'
+        if self.last_weather: d += f'\nWeather was {self.last_weather} ({age}).'
+        self.bottom_detail.setText(d)
 
-    def report_error(self,err):
-        self.last_error=err; self.camera_stamp.setText('Request failed: '+err[:105])
-
-    def get_entities(self,domain,key,auto_key):
-        requested=self.config.get(key,[])
-        # Explicit lists take precedence; otherwise safely discover entities for review.
-        if requested:
-            return [self.states[e] for e in requested if e in self.states]
-        if not self.config.get(auto_key,True): return []
-        return sorted([s for s in self.states.values() if s['entity_id'].startswith(domain+'.')],key=friendly)
-
-    def update_states(self,states):
-        self.states={s['entity_id']:s for s in states}
-        self.last_error=''
-        self.connection.setText('Connected to Home Assistant' if not self.demo else 'Demo mode')
-        lights=self.get_entities('light','lights','auto_discover_lights')
-        on=sum(s.get('state')=='on' for s in lights)
-        self.home_light_count.setText(f'{on} / {len(lights)} on')
-        self.top_summary.setText(f'{on} of {len(lights)} lights on')
+    def update_states(self, entities):
+        recovered = self.fail_count > 0
+        self.fail_count = 0
+        if recovered: self.poll_timer.setInterval(self.config['poll_seconds'] * 1000)
+        was_online = self.store.online
+        changed = self.store.update(entities)
+        self.sync_layout()
+        if changed or was_online is not True:
+            self.refresh_all()
         self.update_weather()
-        self.home_subtitle.setText('All systems ready.' if not self.demo else 'Demo mode · No real devices controlled')
-        self.populate_lights(lights)
-        self.refresh_room()
-        scenes=self.get_entities('scene','scenes','auto_discover_scenes')
-        self.populate_scenes(scenes)
-        cameras=self.get_entities('camera','cameras','auto_discover_cameras')
-        self.populate_cameras(cameras)
         self.apply_auto_theme()
 
-    def fill_rows(self,layout,rows,entities,on_open,empty):
-        ids=[s['entity_id'] for s in entities]
-        if list(rows)!=ids:
-            # remove widgets and their layout entries (also removes the previous spacer)
-            while layout.count():
-                item=layout.takeAt(0)
-                if item.widget(): item.widget().deleteLater()
-            rows.clear()
-            for s in entities:
-                row=LightRow(s,self,on_open); rows[s['entity_id']]=row
-                layout.addWidget(row)
-            if not entities: layout.addWidget(label(empty,'small'))
-            layout.addStretch(1)
-        else:
-            for s in entities: rows[s['entity_id']].update_entity(s)
+    def refresh_all(self):
+        if self.layout:
+            on = sum(1 for e in self.layout.all_lights() if (self.states.get(e) or {}).get('state') == 'on')
+            tot = len(self.layout.all_lights())
+            self.summary_text = f'{on} of {tot} lights on'
+            if self.online: self.top_summary.setText('Demo mode · no real devices' if self.demo else self.summary_text)
+        if not self.online: self.render_offline()
+        self.populate_home(); self.populate_scenes()
+        if not self.editing:
+            self.populate_rooms(); self.refresh_room()
+        if self.lights_views.currentIndex() == V_COLOR: self.editor.refresh()
+        if self.lights_views.currentIndex() == V_COLORS: self.colors_view.refresh()
+        self.populate_cameras()
 
-    def populate_lights(self,lights):
-        self.fill_rows(self.light_layout,self.rows,lights,self.open_room,'No light entities found. Configure them in config.json.')
+    def notice(self, text, ms=4500):
+        """Short message in the display-only header; never needs a tap to dismiss."""
+        self.notice_token += 1; tok = self.notice_token
+        self.top_summary.setText(text)
 
-    def open_room(self,entity_id):
-        self.current_room=entity_id; self.lights_views.setCurrentIndex(1); self.refresh_room()
+        def restore():
+            if tok == self.notice_token:
+                self.top_summary.setText(getattr(self, 'summary_text', '') if self.online else 'Home is offline')
+        QTimer.singleShot(ms, restore)
 
-    def close_room(self):
-        self.current_room=None; self.lights_views.setCurrentIndex(0)
+    def send_action(self, domain, action, entity_ids, button=None, **kwargs):
+        if not self.online:
+            self.notice('Home is offline - nothing was sent'); return False
+        ids = [entity_ids] if isinstance(entity_ids, str) else list(entity_ids)
+        key = (domain, action, tuple(sorted(ids)), repr(sorted(kwargs.items())))
+        now = time.monotonic()
+        if now - self.last_action.get(key, -1e9) < 0.6:
+            return False  # coalesce repeat taps
+        if self.pending >= 8:
+            self.notice('Busy - try again in a moment'); return False
+        self.last_action[key] = now
+        if len(self.last_action) > 64:
+            self.last_action = {k: t for k, t in self.last_action.items() if now - t < 5}
+        if button is not None:
+            try:
+                button.setEnabled(False)
+                QTimer.singleShot(700, lambda b=button: self._unbusy(b))
+            except RuntimeError:
+                pass
+        self.pending += 1
 
-    def toggle_room(self):
-        room=self.states.get(self.current_room) if self.current_room else None
-        if room: self.send_action('light','turn_off' if room.get('state')=='on' else 'turn_on',self.current_room)
+        def done(_):
+            # devices confirm to HA a moment later: re-read twice so the panel never shows a stale state
+            self.pending -= 1; QTimer.singleShot(400, self.poll); QTimer.singleShot(2200, self.poll)
 
-    def refresh_room(self):
-        if not self.current_room: return
-        room=self.states.get(self.current_room)
-        if not room: self.close_room(); return
-        on=room.get('state')=='on'; available=room.get('state') not in ('unavailable','unknown')
-        self.room_title.setText(friendly(room))
-        self.room_toggle.setText('\u2014' if not available else ('ON' if on else 'OFF'))
-        self.room_toggle.setProperty('kind','primary' if (on and available) else 'secondary')
-        self.room_toggle.style().unpolish(self.room_toggle); self.room_toggle.style().polish(self.room_toggle)
-        self.room_toggle.setEnabled(available)
-        ids=room.get('attributes',{}).get('entity_id') or []
-        members=sorted([self.states[i] for i in ids if i in self.states and i.startswith('light.')],key=friendly)
-        self.fill_rows(self.room_layout,self.room_rows,members,None,'No individual lights found in this room.')
+        def err(e):
+            self.pending -= 1; self.notice('Action failed: ' + e[:60])
+        self.dispatch('action:' + str(time.monotonic_ns()), lambda: self.client.service(domain, action, ids, **kwargs), done, err)
+        return True
 
-    def populate_scenes(self,scenes):
-        chosen=[s for s in scenes if s['entity_id'].startswith('scene.')][:3]
-        signature=tuple(s['entity_id'] for s in chosen)
-        if getattr(self,'scene_signature',None)==signature: return
-        self.scene_signature=signature
-        while self.scene_holder.count():
-            item=self.scene_holder.takeAt(0)
-            if item.widget(): item.widget().deleteLater()
-        if not chosen:
-            self.scene_holder.addWidget(label('No scenes yet. Create them in Home Assistant.','small'))
-        for s in chosen:
-            self.scene_holder.addWidget(button(friendly(s),lambda checked=False,e=s['entity_id']:self.send_action('scene','turn_on',e)))
-
-    def populate_cameras(self,cameras):
-        signature=tuple(s['entity_id'] for s in cameras)
-        if getattr(self,'camera_signature',None)!=signature:
-            self.camera_signature=signature
-            while self.camera_choice.count():
-                item=self.camera_choice.takeAt(0)
-                if item.widget(): item.widget().deleteLater()
-            if not cameras: self.camera_choice.addWidget(label('No camera entities configured.','small'))
-            for s in cameras[:5]:
-                self.camera_choice.addWidget(button(friendly(s),lambda checked=False,e=s['entity_id']:self.select_camera(e)))
-            if self.active_camera not in signature:
-                self.active_camera=signature[0] if signature else None
-                self.preview_image=None
-        if self.page_index==2 and self.active_camera and self.preview_image is None:
-            self.poll_camera()
-
-    def select_camera(self,eid):
-        self.active_camera=eid; self.preview_image=None
-        self.camera_view.setText('Loading snapshot…'); self.poll_camera()
-
-    def poll_camera(self):
-        if self.page_index!=2 or not self.active_camera: return
-        eid=self.active_camera
-        self.dispatch('camera',lambda:self.client.camera_snapshot(eid),
-                      lambda data:self.camera_ready(eid,data),
-                      lambda e:self.camera_stamp.setText('Snapshot unavailable: '+e[:105]))
-
-    def camera_ready(self,eid,data):
-        if eid!=self.active_camera:return
-        if not data:
-            self.camera_view.setText('Camera snapshot placeholder (demo mode)')
-            return
-        pix=QPixmap()
-        if not pix.loadFromData(data):
-            self.camera_stamp.setText('Invalid camera snapshot format'); return
-        self.preview_image=pix; self.display_preview()
-        self.camera_stamp.setText(f'{eid} · Snapshot {datetime.now():%-I:%M:%S %p} · Not live video')
-
-    def display_preview(self):
-        if self.preview_image is not None:
-            self.camera_view.setPixmap(self.preview_image.scaled(self.camera_view.size(),Qt.KeepAspectRatio,Qt.SmoothTransformation))
-
-    def resizeEvent(self,event):
-        super().resizeEvent(event)
-        if hasattr(self,'camera_view'): self.display_preview()
+    def _unbusy(self, b):
+        try:
+            b.setEnabled(True)
+        except RuntimeError:
+            pass  # widget was rebuilt
+        self.refresh_all() if self.online else None
 
     def all_lights_off(self):
-        lights=self.get_entities('light','lights','auto_discover_lights')
-        ids=[s['entity_id'] for s in lights if s.get('state')=='on']
-        if ids: self.send_action('light','turn_off',ids)
+        if not self.layout: return
+        ids = [e for e in self.layout.all_lights() if (self.states.get(e) or {}).get('state') == 'on']
+        if ids: self.send_action('light', 'turn_off', ids)
+        else: self.notice('All panel lights are already off')
 
-    def send_action(self,domain,action,entity_ids,**kwargs):
-        key='action:'+str(time.monotonic_ns())
-        self.dispatch(key, lambda:self.client.service(domain,action,entity_ids,**kwargs),
-                      lambda _:QTimer.singleShot(300,self.poll),
-                      lambda e:self.connection.setText('Action failed: '+e[:85]))
-
+    # --- weather ----------------------------------------------------------------------------------------------
     def weather_entity(self):
-        want=self.config.get('weather_entity')
+        want = self.config.get('weather_entity')
         if want: return self.states.get(want)
-        ws=sorted(e for e in self.states if e.startswith('weather.'))
+        ws = sorted(e for e in self.states if e.startswith('weather.'))
         return self.states[ws[0]] if ws else None
 
     def update_weather(self):
-        w=self.weather_entity()
-        if not w or w.get('state') in ('unavailable','unknown'):
-            self.bottom_status.setText('Weather unavailable' if not self.demo else 'Demo mode')
-            self.bottom_detail.setText('')
+        if not self.online:
             return
-        a=w.get('attributes',{}); glyph,name=WEATHER.get(w.get('state'),('',str(w.get('state','')).replace('-',' ').title()))
-        t=a.get('temperature'); unit=a.get('temperature_unit','')
-        temp=f'{round(t)}{unit}' if t is not None else ''
+        w = self.weather_entity()
+        if not w or w.get('state') in ('unavailable', 'unknown'):
+            self.bottom_status.setText('Weather unavailable'); self.bottom_detail.setText('')
+            return
+        a = w.get('attributes', {}); glyph, name = WEATHER.get(w.get('state'), ('', str(w.get('state', '')).replace('-', ' ').title()))
+        t = a.get('temperature'); unit = a.get('temperature_unit', '')
+        temp = f'{round(t)}{unit}' if t is not None else ''
+        self.last_weather = f'{temp} {name}'.strip()
         self.bottom_status.setText(f'{glyph}  {temp}   {name}'.strip())
-        bits=[]
+        bits = []
         if a.get('humidity') is not None: bits.append(f"Humidity {round(a['humidity'])}%")
-        if a.get('wind_speed') is not None: bits.append(f"Wind {round(a['wind_speed'])} {a.get('wind_speed_unit','')}".strip())
-        lines=['  \u00b7  '.join(bits)] if bits else []
-        f=getattr(self,'forecast_next',None)
+        if a.get('wind_speed') is not None: bits.append(f"Wind {round(a['wind_speed'])} {a.get('wind_speed_unit', '')}".strip())
+        lines = ['  ·  '.join(bits)] if bits else []
+        f = self.forecast_next
         if f:
-            fg,fname=WEATHER.get(f.get('condition'),('',str(f.get('condition','')).replace('-',' ').title()))
-            hi,lo=f.get('temperature'),f.get('templow')
-            rng=f' \u00b7 {round(hi)}\u00b0 / {round(lo)}\u00b0' if hi is not None and lo is not None else ''
+            fg, fname = WEATHER.get(f.get('condition'), ('', str(f.get('condition', '')).replace('-', ' ').title()))
+            hi, lo = f.get('temperature'), f.get('templow')
+            rng = f' · {round(hi)}° / {round(lo)}°' if hi is not None and lo is not None else ''
             lines.append(f'Tomorrow: {fname}{rng}')
         self.bottom_detail.setText('\n'.join(lines))
-        # refresh the daily forecast at most every 30 minutes
-        if time.monotonic()-getattr(self,'forecast_at',-1e9)>1800 and not self.demo:
-            self.forecast_at=time.monotonic()
-            self.dispatch('forecast',lambda:self.client.forecast(w['entity_id']),self.set_forecast,lambda e:None)
+        if time.monotonic() - self.forecast_at > 1800 and not self.demo:  # at most 2 forecast requests/hour
+            self.forecast_at = time.monotonic()
+            self.dispatch('forecast', lambda: self.client.forecast(w['entity_id']), self.set_forecast, lambda e: None)
 
-    def set_forecast(self,days):
-        self.forecast_next=days[1] if len(days)>1 else None
+    def set_forecast(self, days):
+        self.forecast_next = days[1] if len(days) > 1 else None
         self.update_weather()
 
+    # --- clock / theme -----------------------------------------------------------------------------------------
     def clock_update(self):
-        now=datetime.now()
+        now = datetime.now()
         self.clock.setText(now.strftime('%-I:%M %p'))
-        h=now.hour
-        if hasattr(self,'home_header'):
-            greet='Good morning' if 5<=h<12 else ('Good afternoon' if 12<=h<18 else 'Good evening')
-            self.home_header.setText(greet); self.top_greeting.setText(greet)
+        h = now.hour
+        self.top_greeting.setText('Good morning' if 5 <= h < 12 else ('Good afternoon' if 12 <= h < 18 else 'Good evening'))
         self.date_label.setText(now.strftime('%A, %B %d'))
         self.apply_auto_theme()
 
-    def set_override(self,theme):
-        self.override=theme; self.save_preferences(); self.apply_auto_theme()
+    def set_override(self, theme):
+        self.override = theme; self.save_preferences(); self.apply_auto_theme()
 
     def update_theme_buttons(self):
-        if not hasattr(self,'theme_buttons'):return
-        for name,b in self.theme_buttons.items():
-            b.setProperty('kind','primary' if name==self.override else 'secondary')
-            b.style().unpolish(b); b.style().polish(b)
+        if not hasattr(self, 'theme_buttons'): return
+        for name, b in self.theme_buttons.items():
+            set_kind(b, 'primary' if name == self.override else 'secondary')
 
     def apply_auto_theme(self):
-        if self.override in ('light','dark'): theme=self.override
+        if self.override in ('light', 'dark'): theme = self.override
         else:
-            sun=self.states.get('sun.sun',{}).get('state')
-            theme='light' if sun=='above_horizon' else ('dark' if sun=='below_horizon' else ('light' if 7<=datetime.now().hour<19 else 'dark'))
-        self.theme_status.setText('AUTO '+theme.upper() if self.override=='auto' else theme.upper())
-        if theme!=self.current_theme:self.set_theme(theme)
+            sun = self.states.get('sun.sun', {}).get('state')
+            theme = 'light' if sun == 'above_horizon' else ('dark' if sun == 'below_horizon' else ('light' if 7 <= datetime.now().hour < 19 else 'dark'))
+        self.theme_status.setText('AUTO ' + theme.upper() if self.override == 'auto' else theme.upper())
+        if theme != self.current_theme: self.set_theme(theme)
         self.update_theme_buttons()
 
-    def set_theme(self,theme):
-        self.current_theme=theme;p=PALETTES[theme]
-        # QSS uses static styles; no animation or shader-heavy effects.
+    def set_theme(self, theme):
+        self.current_theme = theme; p = PALETTES[theme]
+        # QSS only: flat colours, no gradients, animation or shader-heavy effects.
         self.setStyleSheet('''
         QWidget#Root { background: %(bg)s; color: %(text)s; }
-        QWidget { color: %(text)s; font-family: 'DejaVu Sans', sans-serif; font-size: 14px; }
-        QLabel[role="heading"] { font-size: 27px; font-weight: 700; }
-        QLabel[role="hero"] { font-size: 38px; font-weight: 700; }
+        QWidget { color: %(text)s; font-family: 'DejaVu Sans', sans-serif; font-size: 15px; }
+        QLabel[role="infoClock"] { font-size: 44px; font-weight: 700; }
+        QLabel[role="heading"] { font-size: 22px; font-weight: 700; }
         QLabel[role="rowTitle"] { font-size: 17px; font-weight: 600; }
-        QLabel[role="clock"] { font-size: 19px; font-weight: 700; }
-        QLabel[role="overline"] { font-size: 11px; font-weight: 700; color: %(muted)s; }
-        QLabel[role="small"] { font-size: 12px; color: %(muted)s; }
-        QLabel[role="cameraPlaceholder"] { font-size: 15px; color: %(muted)s; }
-        QFrame#Card, QFrame#Nav, QFrame#LightRow { background: %(card)s; border: 1px solid %(border)s; border-radius: 16px; }
+        QLabel[role="overline"] { font-size: 12px; font-weight: 700; color: %(muted)s; }
+        QLabel[role="small"] { font-size: 13px; color: %(muted)s; }
+        QLabel[role="cameraPlaceholder"] { font-size: 16px; color: %(muted)s; }
+        QFrame#Card, QFrame#Nav, QFrame#LightRow { background: %(card)s; border: 1px solid %(border)s; border-radius: 14px; }
         QFrame#LightRow { border-radius: 12px; }
-        QPushButton { border: 0; border-radius: 12px; background: %(card2)s; color: %(text)s; padding: 6px 15px; font-size: 14px; font-weight: 600; }
+        QPushButton { border: 0; border-radius: 12px; background: %(card2)s; color: %(text)s; padding: 2px 12px; font-size: 15px; font-weight: 600; }
         QPushButton[kind="primary"] { background: %(accent)s; color: %(bg)s; }
+        QPushButton[kind="danger"] { background: %(danger)s; color: #FFFFFF; }
         QPushButton[active="true"] { background: %(accent)s; color: %(bg)s; }
         QPushButton:disabled { color: %(muted)s; }
         QSlider::groove:horizontal { background: %(border)s; height: 8px; border-radius: 4px; }
         QSlider::sub-page:horizontal { background: %(accent)s; border-radius: 4px; }
-        QSlider::handle:horizontal { background: %(text)s; width: 22px; margin: -7px 0; border-radius: 11px; }
+        QSlider::handle:horizontal { background: %(text)s; width: 26px; margin: -9px 0; border-radius: 13px; }
         QScrollArea { background: transparent; border: none; }
-        QScrollBar:vertical { background: %(bg)s; width: 9px; }
-        QScrollBar::handle:vertical { background: %(border)s; border-radius: 4px; min-height: 25px; }
-        ''' % p + (COMPACT_CSS if COMPACT else ''))
-        # Qt does not always re-polish existing children after a runtime stylesheet swap
+        QScrollBar:vertical { background: transparent; width: 0px; }
+        ''' % p)
         self._repolish()
-        QTimer.singleShot(250,self._repolish)  # again once the window is shown (startup case)
+        QTimer.singleShot(250, self._repolish)
 
     def _repolish(self):
         for w in self.findChildren(QWidget):
@@ -601,29 +959,35 @@ class Panel(QMainWindow):
         self.update()
 
 
+def load_config(path, demo):
+    path = Path(path)
+    if path.exists(): return json.loads(path.read_text(encoding='utf-8'))
+    if demo: return json.loads((ROOT / 'config.example.json').read_text(encoding='utf-8'))
+    print(f'Configuration missing: {path}. Copy config.example.json to config.json first.', file=sys.stderr)
+    sys.exit(2)
+
+
 def main():
-    ap=argparse.ArgumentParser()
-    ap.add_argument('--demo',action='store_true',help='Offline demo data; no API requests')
-    ap.add_argument('--windowed',action='store_true',help='Do not launch fullscreen')
-    ap.add_argument('--config',default=str(ROOT/'config.json'))
-    args=ap.parse_args()
-    config_path=Path(args.config)
-    if config_path.exists(): config=json.loads(config_path.read_text(encoding='utf-8'))
-    elif args.demo: config=json.loads((ROOT/'config.example.json').read_text(encoding='utf-8'))
-    else:
-        print(f'Configuration missing: {config_path}. Copy config.example.json to config.json first.',file=sys.stderr)
-        sys.exit(2)
-    def _hook(t,v,tb):
-        import traceback; traceback.print_exception(t,v,tb)
-    sys.excepthook=_hook  # PyQt5 aborts on uncaught slot exceptions; log them instead
-    global COMPACT
-    COMPACT=bool(config.get('touch_band'))
-    app=QApplication(sys.argv[:1])
-    app.setStyle('Fusion')
-    try: panel=Panel(config,demo=args.demo,fullscreen=not args.windowed)
-    except HomeAssistantError as e:
-        print('Configuration error:',e,file=sys.stderr);sys.exit(2)
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--demo', action='store_true', help='Offline demo data; no API requests')
+    ap.add_argument('--windowed', action='store_true', help='Do not launch fullscreen')
+    ap.add_argument('--config', default=str(ROOT / 'config.json'))
+    ap.add_argument('--size', default='', help='WxH, default: screen size when fullscreen else 1024x600')
+    args = ap.parse_args()
+    config = load_config(args.config, args.demo)
+
+    def _hook(t, v, tb):
+        import traceback; traceback.print_exception(t, v, tb)
+    sys.excepthook = _hook  # PyQt5 aborts on uncaught slot exceptions; log them instead
+    app = QApplication(sys.argv[:1]); app.setStyle('Fusion')
+    if args.size: size = tuple(int(x) for x in args.size.lower().split('x'))
+    elif not args.windowed:
+        sz = app.primaryScreen().size(); size = (sz.width(), sz.height())
+    else: size = (1024, 600)
+    try: Panel(config, demo=args.demo, fullscreen=not args.windowed, size=size)
+    except (HomeAssistantError, settings.ConfigError) as e:
+        print('Configuration error:', e, file=sys.stderr); sys.exit(2)
     sys.exit(app.exec_())
 
 
-if __name__=='__main__': main()
+if __name__ == '__main__': main()

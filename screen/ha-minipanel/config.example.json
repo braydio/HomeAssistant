@@ -1,14 +1,33 @@
 {
   "ha_url": "http://HOME_ASSISTANT_PI4_IP:8123",
   "token_file": "~/.config/ha-minipanel/token",
-  "lights": [],
-  "scenes": [],
-  "cameras": [],
-  "poll_seconds": 12,
-  "snapshot_seconds": 12,
-  "auto_discover_lights": true,
-  "auto_discover_scenes": true,
-  "auto_discover_cameras": true,
-  "touch_band": null,
-  "weather_entity": null
+  "touch_band": [112, 442],
+  "layout": "three_tab",
+  "rooms": [
+    {"label": "Kitchen", "entity_id": "light.kitchen_lights", "favorite": true},
+    {"label": "Living Room", "entity_id": "light.living_room_lights", "favorite": true},
+    {"label": "Bathroom", "entity_id": "light.bathroom_lights", "favorite": true},
+    {"label": "Bedroom", "entity_id": "light.bedroom_rope_lamp", "favorite": true},
+    {"label": "Office", "entity_id": "light.office_office_main_light", "favorite": false}
+  ],
+  "scenes": [
+    {"entity_id": "scene.panel_relax", "label": "Relax"},
+    {"entity_id": "scene.panel_bright", "label": "Bright"},
+    {"entity_id": "scene.panel_night_lights", "label": "Night"}
+  ],
+  "colors": {
+    "target_entity": "input_select.home_panel_color_target",
+    "apply_script": "script.home_panel_apply_color",
+    "save_script": "script.home_panel_save_preset",
+    "preset_script": "script.home_panel_apply_preset"
+  },
+  "weather_entity": "weather.forecast_home",
+  "camera_entities": [],
+  "poll_seconds": 20,
+  "camera_auto_refresh": false,
+  "snapshot_seconds": 25,
+  "camera_max_bytes": 1048576,
+  "camera_max_decoded_pixels": 2073600,
+  "diagnostics_seconds": 60,
+  "auto_discover_cameras": false
 }

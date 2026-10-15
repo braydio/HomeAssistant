@@ -12,16 +12,16 @@ class ClientTests(unittest.TestCase):
         self.c = HAClient({}, demo=True)
 
     def test_get_demo_states(self):
-        self.assertTrue(any(s['entity_id'] == 'light.living_room' for s in self.c.states()))
+        self.assertTrue(any(s['entity_id'] == 'light.living_room_lamp' for s in self.c.states()))
 
     def test_switch_light(self):
-        self.c.service('light','turn_off','light.living_room')
-        found = next(s for s in self.c.states() if s['entity_id']=='light.living_room')
+        self.c.service('light','turn_off','light.living_room_lamp')
+        found = next(s for s in self.c.states() if s['entity_id']=='light.living_room_lamp')
         self.assertEqual(found['state'],'off')
 
     def test_brightness(self):
-        self.c.service('light','turn_on','light.living_room',brightness_pct=20)
-        found = next(s for s in self.c.states() if s['entity_id']=='light.living_room')
+        self.c.service('light','turn_on','light.living_room_lamp',brightness_pct=20)
+        found = next(s for s in self.c.states() if s['entity_id']=='light.living_room_lamp')
         self.assertEqual(found['attributes']['brightness'],51)
 
     def test_no_unsupported_service(self):
@@ -34,7 +34,7 @@ class ClientTests(unittest.TestCase):
 
     def test_no_invalid_camera(self):
         with self.assertRaises(ValueError):
-            self.c.camera_snapshot('light.living_room')
+            self.c.camera_snapshot('light.living_room_lamp')
 
     def test_credentials_required(self):
         with patch.dict('os.environ', {'HA_TOKEN':''}):

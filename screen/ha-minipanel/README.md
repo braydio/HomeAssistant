@@ -2,15 +2,27 @@
 
 A functioning proof-of-concept for **Raspberry Pi Zero 2 W + 7-inch HDMI touchscreen**. The Pi 4 continues hosting Home Assistant; the Zero runs a lightweight native Python/Qt Widgets client. **No Chromium or full Home Assistant frontend is loaded.**
 
-## What works in this prototype
+## What it does (v2)
 
-- **Home**: number of enabled lights, quick scene buttons (up to 3), all-off for the selected/auto-discovered lights, camera-page shortcut.
-- **Lights**: auto-discovery or explicit list of Home Assistant `light.*` entities; on/off and brightness percentage for dimmable lights, with responsive touch controls.
-- **Cameras**: on-demand, periodically refreshed JPEG snapshots of **one selected** `camera.*` entity through Home Assistant's authenticated camera proxy. This is **not full-motion live video**.
-- **Settings**: auto day/night from `sun.sun` or local-time fallback; manual Light / Dark override; saved preference.
-- Background HTTP jobs to keep touchscreen interaction responsive; no unnecessary WebView, dashboards, animations, or transcoding processes.
+Three tabs in the touch band – **Home | Lights | Cameras** – and Settings from Home (with a Back button).
 
-**Not yet done**: true H.264 camera live video, touchscreen/input driver setup, on-device performance benchmarks, Pi Zero 2 W hardware verification, OS autostart migration from Chromium. These require your actual devices. The attached Claude packet covers them.
+- **Home**: four favourite room tiles (aggregate state + Turn on/off), three scenes, **All Off**, Settings.
+- **Lights**: *Rooms* (tap a name to open a room, drag to scroll) and *Colors*.
+  - Room view: per-light brightness slider (only if supported), **Color** button, ON/OFF; room header has Color (whole room) and ON/OFF.
+  - **Colour editor** (one reusable in-band widget): capability-driven – on/off and brightness-only lights say so and disable colour; colour-temperature lights get Warm/Daylight clamped to their range; RGB lights get seven named swatches. Chips only *preview*; **Apply** sends one validated `light.turn_on`.
+  - **Colors tab**: HA colour target (‹ ›), swatches, Apply, presets 1–4, Save… (slot → "Overwrite?" confirmation) – all through the existing `script.home_panel_*` scripts and `input_select.home_panel_color_target`.
+  - **Edit layout**: panel-only rearrangement (does *not* change Home Assistant rooms/areas/groups/scenes). Move rooms ▲▼, open a room, **Move to…** another room, reorder lights ▲▼, Done / Cancel / Reset. Saved in `~/.config/ha-minipanel/layout.json`.
+- **Cameras**: one selected camera, manual refresh (optional auto-refresh), bounded decode; honest "No camera available" when HA has none.
+- **Settings**: Auto/Light/Dark, camera refresh preference, diagnostics (HA state, last update, RSS, MemAvailable, CPU temp, counters, version).
+- **Touch band**: with `touch_band: [112, 442]` the top and bottom strips are display-only (clock, greeting, light summary, weather, offline/stale status). Every control – including nav, Back, Done and Move to… – lives inside the band with an 8 px safety margin.
+- **Offline**: the last known values stay on screen marked "Offline · last known", actions are disabled, the footer shows the data age and retry time; retries back off 5→10→30→60 s.
+
+Modules: `panel.py` (bootstrap, pages, polling), `views.py` (widgets), `ha_client.py` (REST + service allowlist), `state_store.py`, `settings.py` (config validation, default rooms), `colors.py`, `layout_model.py`, `camera.py`, `telemetry.py`.
+Tests: `python3 -m unittest test_layout_model test_colors test_core test_ha_client` (no Qt) and `QT_QPA_PLATFORM=offscreen python3 -m unittest test_ui_offscreen`.
+
+Config keys are in `config.example.json`; v1 keys (`lights`, `cameras`) still work. `rooms[].lights` can pin members when a group entity is unavailable.
+
+**Not done**: live video, drag-and-drop moving (tap-based *Move to…* instead), WebSocket subscription (one bulk REST read every 20 s is cheaper on a Zero). See `docs/PANEL_REDESIGN_AUDIT.md`.
 
 ## Install on DietPi Zero 2 W
 
@@ -80,12 +92,12 @@ Pi 4 / DietPi                         Pi Zero 2 W / DietPi
 +------------------------+             +---------------------------+
 | Home Assistant 2026.7.4|   LAN API   | X11 + native Qt Widgets   |
 | Docker container       |<----------->| HA state/lighting controls|
-| Tapo camera entities   | snapshots   | 4-page touchscreen UI     |
+| Tapo camera entities   | snapshots   | 3-tab touchscreen UI      |
 +------------------------+             +---------------------------+
 ```
 
-- Home Assistant state polling: default 12 seconds.
-- Camera JPEG polling: default 12 seconds **only on Cameras page**.
+- Home Assistant state polling: default 20 seconds (one bulk read, filtered to the entities the panel uses).
+- Camera snapshots: manual, or every `snapshot_seconds` **only while the Cameras page is open**.
 - Network requests run outside the UI thread.
 - Do not load all live streams or refresh camera snapshots continuously in the background.
 - No HA server containers or integrations are installed on the Zero 2 W.
@@ -93,7 +105,7 @@ Pi 4 / DietPi                         Pi Zero 2 W / DietPi
 
 ## Test and rollback
 
-1. Run `python3 -m unittest -v test_ha_client.py`.
+1. Run the unit tests listed above.
 2. Launch with `--demo --windowed` and verify every page/theme setting with touch.
 3. Configure URL/token. Test each selected light, one scene, and one camera snapshot.
 4. Benchmark idle RSS/available RAM and interaction lag *on the Zero*, not the Pi 4.
