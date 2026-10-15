@@ -1,0 +1,16 @@
+[Unit]
+Description=Reload Bluetooth driver after boot (Pi 4 BCM4345C0 patch collides with brcmfmac firmware load)
+After=bluetooth.service systemd-modules-load.service
+Before=docker.service
+ConditionPathExists=/sys/class/bluetooth/hci0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/sleep 12
+# only reload if the adapter came up with the blank address
+ExecStart=/bin/sh -c "if hciconfig hci0 2>/dev/null | grep -q \"BD Address: 00:00:00:00:00:00\"; then systemctl stop bluetooth; modprobe -r hci_uart btbcm; sleep 2; modprobe hci_uart; sleep 8; systemctl start bluetooth; fi"
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target
