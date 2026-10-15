@@ -20,6 +20,12 @@ from PyQt5.QtWidgets import (QApplication, QFrame, QWidget, QLabel, QMainWindow,
 from ha_client import HAClient, HomeAssistantError
 
 ROOT = Path(__file__).resolve().parent
+COMPACT = False  # set from config touch_band; shrinks the UI to fit a short band
+COMPACT_CSS = '''
+        QLabel[role="hero"] { font-size: 26px; }
+        QLabel[role="heading"] { font-size: 21px; }
+        QPushButton { padding: 2px 12px; }
+'''
 PREFS = Path.home() / '.config' / 'ha-minipanel' / 'preferences.json'
 
 PALETTES = {
@@ -49,7 +55,7 @@ def layout_v(widget=None, margins=(0,0,0,0), gap=12):
 
 def button(text, callback, kind='secondary'):
     b = QPushButton(text); b.setProperty('kind', kind); b.setCursor(Qt.PointingHandCursor)
-    b.setMinimumHeight(48); b.clicked.connect(callback); return b
+    b.setMinimumHeight(38 if COMPACT else 48); b.clicked.connect(callback); return b
 
 
 def friendly(s):
@@ -133,7 +139,13 @@ class Panel(QMainWindow):
         self.current_theme='dark'
         self.page_index=0; self.active_camera=None; self.last_error=''
         self.setWindowTitle('Home Panel | Native Qt')
-        self.resize(1024,600)
+        # Some digitizers only report touches in a middle band of the screen (QDtech MPI7002: ~Y 107-449 of 600).
+        # touch_band=[top,bottom] confines the whole UI to that band so every control is reachable.
+        band=config.get('touch_band'); self.compact=bool(band)
+        if band:
+            top,bot=int(band[0]),int(band[1])
+            self.setWindowFlag(Qt.FramelessWindowHint); self.setGeometry(0,top,1024,bot-top); self.setFixedSize(1024,bot-top)
+        else: self.resize(1024,600)
         self.build_ui()
         self.set_theme('dark')
         self.clock_update()
@@ -146,7 +158,8 @@ class Panel(QMainWindow):
         self.camera_timer.start(max(5,int(config.get('snapshot_seconds',12)))*1000)
         self.clock_timer=QTimer(self); self.clock_timer.timeout.connect(self.clock_update)
         self.clock_timer.start(10000)
-        if fullscreen: self.showFullScreen()
+        if band: self.show()
+        elif fullscreen: self.showFullScreen()
         else: self.show()
 
     def load_preferences(self):
@@ -160,7 +173,7 @@ class Panel(QMainWindow):
 
     def build_ui(self):
         root=QWidget(); root.setObjectName('Root'); self.setCentralWidget(root)
-        outer=layout_v(root,(18,12,18,12),9)
+        outer=layout_v(root,(18,4,18,4) if self.compact else (18,12,18,12),5 if self.compact else 9)
         bar=QHBoxLayout(); bar.setSpacing(12)
         self.clock=label('00:00','clock'); bar.addWidget(self.clock)
         bar.addStretch(1); bar.addWidget(label('HOME PANEL','overline'))
@@ -173,7 +186,7 @@ class Panel(QMainWindow):
         self.nav_buttons=[]
         for idx, name in enumerate(('Home','Lights','Cameras','Settings')):
             b=button(name,lambda checked=False,n=idx:self.switch_page(n),'nav')
-            b.setMinimumHeight(46); nav.addWidget(b,1); self.nav_buttons.append(b)
+            b.setMinimumHeight(36 if COMPACT else 46); nav.addWidget(b,1); self.nav_buttons.append(b)
         outer.addWidget(navbar)
         self.update_nav()
 
@@ -186,8 +199,9 @@ class Panel(QMainWindow):
         page=QWidget(); body=layout_v(page,(3,2,3,3),12)
         self.home_header=label('Good evening','heading'); body.addWidget(self.home_header)
         self.home_subtitle=label('Your home, one touch away.','small'); body.addWidget(self.home_subtitle)
+        if self.compact: self.home_subtitle.setVisible(False)
         content=QHBoxLayout(); content.setSpacing(12)
-        lighting=card(); vl=layout_v(lighting,(18,17,18,17),12)
+        lighting=card(); vl=layout_v(lighting,((14,7,14,7) if COMPACT else (18,17,18,17)),12)
         vl.addWidget(label('LIGHTING','overline')); self.home_light_count=label('Checking lights…','hero')
         vl.addWidget(self.home_light_count)
         vl.addWidget(label('Simple controls, without a browser.','small'))
@@ -196,7 +210,7 @@ class Panel(QMainWindow):
         h.addWidget(button('Rooms  →',lambda:self.switch_page(1),'primary'),1)
         h.addWidget(button('All off',self.all_lights_off),1)
         vl.addLayout(h); content.addWidget(lighting,3)
-        actions=card(); ar=layout_v(actions,(18,17,18,17),10)
+        actions=card(); ar=layout_v(actions,((14,7,14,7) if COMPACT else (18,17,18,17)),10)
         ar.addWidget(label('QUICK SCENES','overline'))
         self.scene_holder=QVBoxLayout(); self.scene_holder.setSpacing(7)
         ar.addLayout(self.scene_holder); ar.addStretch(1)
@@ -277,6 +291,7 @@ class Panel(QMainWindow):
         self.connection.setText('Offline / connection error')
         self.last_error=err
         self.home_subtitle.setText('Cannot reach Home Assistant. Check connection.')
+        self.home_light_count.setText('Home is offline')
 
     def report_error(self,err):
         self.last_error=err; self.camera_stamp.setText('Request failed: '+err[:105])
@@ -441,7 +456,7 @@ class Panel(QMainWindow):
         QScrollArea { background: transparent; border: none; }
         QScrollBar:vertical { background: %(bg)s; width: 9px; }
         QScrollBar::handle:vertical { background: %(border)s; border-radius: 4px; min-height: 25px; }
-        ''' % p)
+        ''' % p + (COMPACT_CSS if COMPACT else ''))
         # Qt does not always re-polish existing children after a runtime stylesheet swap
         self._repolish()
         QTimer.singleShot(250,self._repolish)  # again once the window is shown (startup case)
@@ -467,6 +482,8 @@ def main():
     def _hook(t,v,tb):
         import traceback; traceback.print_exception(t,v,tb)
     sys.excepthook=_hook  # PyQt5 aborts on uncaught slot exceptions; log them instead
+    global COMPACT
+    COMPACT=bool(config.get('touch_band'))
     app=QApplication(sys.argv[:1])
     app.setStyle('Fusion')
     try: panel=Panel(config,demo=args.demo,fullscreen=not args.windowed)
