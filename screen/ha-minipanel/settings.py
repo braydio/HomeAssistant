@@ -66,6 +66,12 @@ def normalize(cfg):
     c['colors'] = colors
     if c.get('weather_entity'):
         _eid(c['weather_entity'], 'weather', 'weather_entity')
+    h = c.get('health') or {}
+    health = {k: _eid(h[k], dom, 'health.' + k) for k, dom in
+              (('temp', 'sensor'), ('ram', 'sensor'), ('disk', 'sensor'), ('ping', 'binary_sensor')) if h.get(k)}
+    health['warn_temp_c'] = max(40, min(95, int(h.get('warn_temp_c', 75))))
+    health['warn_disk_pct'] = max(50, min(99, int(h.get('warn_disk_pct', 85))))
+    c['health'] = health
     return c
 
 

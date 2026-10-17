@@ -22,6 +22,14 @@
     "preset_script": "script.home_panel_apply_preset"
   },
   "weather_entity": "weather.forecast_home",
+  "health": {
+    "temp": "sensor.127_0_0_1_cpu_thermal_0_temperature",
+    "ram": "sensor.127_0_0_1_memory_usage",
+    "disk": "sensor.127_0_0_1_disk_usage",
+    "ping": "binary_sensor.office_dietpi",
+    "warn_temp_c": 75,
+    "warn_disk_pct": 85
+  },
   "camera_entities": [],
   "poll_seconds": 20,
   "camera_auto_refresh": false,

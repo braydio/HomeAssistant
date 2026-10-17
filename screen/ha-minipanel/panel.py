@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (QScroller, QApplication, QFrame, QWidget, QMainWind
 
 import camera
 import colors as C
+import health
 import settings
 import telemetry
 from ha_client import HAClient, HomeAssistantError
@@ -148,8 +149,9 @@ class Panel(QMainWindow):
         self.top_greeting = label('', 'heading'); self.top_summary = label('Checking lights…', 'rowTitle')
         centre.addStretch(1); centre.addWidget(self.top_greeting); centre.addWidget(self.top_summary); centre.addStretch(1)
         right = QVBoxLayout(); right.setSpacing(2)
-        self.theme_status = label('AUTO', 'small')
-        right.addStretch(1); right.addWidget(label('HOME PANEL', 'overline')); right.addWidget(self.theme_status); right.addStretch(1)
+        self.theme_status = label('AUTO', 'small'); self.health_status = label('', 'small')
+        right.addStretch(1); right.addWidget(label('HOME PANEL', 'overline')); right.addWidget(self.theme_status)
+        right.addWidget(self.health_status); right.addStretch(1)
         tl.addLayout(left, 2); tl.addLayout(centre, 3); tl.addLayout(right, 1)
         # interactive band
         mid = QWidget(); mid.setFixedHeight(bot - top)
@@ -707,7 +709,9 @@ class Panel(QMainWindow):
         ha = ('Connected' if self.online else 'Offline') if not self.demo else 'Demo mode'
         c = telemetry.COUNTERS
         t = telemetry.cpu_temp_c(); up = telemetry.uptime_s()
+        self.update_health()
         lines = [f'Home Assistant: {ha} · last update {age_text(self.store.age())}',
+                 *self.health_lines,
                  f'Panel memory: {telemetry.mib(telemetry.rss_kib()) or "?"} MiB · {telemetry.mib(telemetry.mem_available_kib()) or "?"} MiB free',
                  f'CPU temp: {"%.0f °C" % t if t is not None else "n/a"} · uptime {int(up // 3600)} h {int(up % 3600 // 60)} m' if up is not None else 'CPU temp: n/a',
                  f'HA fetches {c["ha_state_requests"]} ({c["ha_state_bytes"] // 1024} KiB) · actions {c["ha_actions"]} · errors {c["network_errors"]}',
@@ -758,7 +762,7 @@ class Panel(QMainWindow):
         if d in ('light', 'weather') or eid == 'sun.sun': return True
         if d == 'scene': return eid in {s['entity_id'] for s in self.config['scenes']}
         if d == 'camera': return bool(self.config['camera_entities']) and eid in self.config['camera_entities'] or (not self.config['camera_entities'] and self.config.get('auto_discover_cameras', False))
-        if eid == colors.get('target_entity'): return True
+        if eid == colors.get('target_entity') or eid in health.entity_ids(self.config['health']): return True
         return eid.startswith('input_text.home_panel_preset_')
 
     def poll(self):
@@ -793,6 +797,14 @@ class Panel(QMainWindow):
             self.refresh_all()
         self.update_weather()
         self.apply_auto_theme()
+        self.update_health()
+
+    def local_health(self):
+        return {'temp': telemetry.cpu_temp_c(), 'ram': telemetry.ram_used_pct(), 'disk': telemetry.disk_used_pct()}
+
+    def update_health(self):
+        status, self.health_lines, _ = health.summarize(self.states, self.config['health'], self.local_health())
+        self.health_status.setText(status)
 
     def refresh_all(self):
         if self.layout:
