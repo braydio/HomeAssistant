@@ -1,0 +1,20 @@
+[Unit]
+Description=Fetch, test and deploy native Qt Home Assistant panel
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/home/braydenchaffee/ha-minipanel/panel.py
+ConditionPathExists=/var/lib/dietpi/dietpi-autostart/custom.sh
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/ha-minipanel-update
+TimeoutStartSec=420
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+ReadWritePaths=/var/lib/ha-minipanel-updater /home/braydenchaffee
+StandardOutput=journal
+StandardError=journal
