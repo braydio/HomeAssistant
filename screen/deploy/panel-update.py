@@ -20,7 +20,7 @@ from pathlib import Path
 APP = Path("/home/braydenchaffee/ha-minipanel")
 STATE = Path("/var/lib/ha-minipanel-updater")
 REPO = STATE / "checkout"
-BACKUPS = STATE / "backups"
+BACKUPS = APP.parent / ".ha-minipanel-rollback"  # same filesystem as APP for atomic swaps
 ORIGIN = "https://github.com/braydio/HomeAssistant.git"
 PANEL_PATH = "screen/ha-minipanel"
 TESTS = ("test_layout_model", "test_colors", "test_core",
@@ -152,6 +152,7 @@ def healthy_after(previous_pids, seconds=55):
 
 def install_release(candidate, sha):
     BACKUPS.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(BACKUPS, 0o700)
     supervisors, previous_pids = processes()
     if not supervisors or not previous_pids:
         info("No running native Qt panel/xinit supervisor; skipping deployment")
