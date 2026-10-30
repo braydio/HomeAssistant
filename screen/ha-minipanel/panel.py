@@ -185,7 +185,7 @@ class Panel(QMainWindow):
             b = button(name, lambda checked=False, n=idx: self.switch_page(n), 'nav')
             nav.addWidget(b, 1); self.nav_buttons.append(b)
         navdock = QHBoxLayout(); navdock.setContentsMargins(0, 0, 0, 0)
-        navdock.addStretch(1); navdock.addWidget(self.navbar, 1); navdock.addStretch(1)
+        navdock.addStretch(0); navdock.addWidget(self.navbar, 100); navdock.addStretch(0)
         outer.addLayout(navdock)
         self.update_nav()
 
@@ -684,6 +684,7 @@ class Panel(QMainWindow):
         for e, b in self.camera_buttons.items(): set_kind(b, 'primary' if e == self.active_camera else 'secondary')
 
     def select_camera(self, eid):
+        if eid == self.active_camera: return
         self.active_camera = eid; self.cam_gen += 1; self.free_preview(); self.mark_camera()
         self.camera_view.setText('Loading snapshot…'); self.poll_camera(True)
 
@@ -706,12 +707,25 @@ class Panel(QMainWindow):
             data = self.client.camera_snapshot(eid)
             return camera.decode_bounded(data, max_pixels=maxpx) if data else None
         self.dispatch('camera', work, lambda img: self.camera_ready(eid, gen, img),
-                      lambda e: self.camera_stamp.setText('Snapshot unavailable: ' + e[:80]))
+                      lambda e: self.camera_failed(eid, gen, e))
+
+    def camera_failed(self, eid, gen, message):
+        if gen != self.cam_gen or eid != self.active_camera or self.page_index != PAGE_CAMERAS:
+            if self.page_index == PAGE_CAMERAS and self.active_camera:
+                QTimer.singleShot(0, lambda: self.poll_camera(True))
+            return
+        self.camera_stamp.setText('Snapshot unavailable: ' + message[:80])
+        if self.camera_source is None:
+            self.camera_view.setText('Snapshot unavailable · try Refresh')
 
     def camera_ready(self, eid, gen, img):
         if gen != self.cam_gen or eid != self.active_camera or self.page_index != PAGE_CAMERAS:
-            return  # stale result: page changed or another camera selected
+            # A switch while another request ran must refresh the new selection.
+            if self.page_index == PAGE_CAMERAS and self.active_camera:
+                QTimer.singleShot(0, lambda: self.poll_camera(True))
+            return
         if img is None:
+            self.free_preview()
             self.camera_view.setText('Demo mode: no snapshot'); return
         self.camera_source = QPixmap.fromImage(img)
         self.scale_camera()
