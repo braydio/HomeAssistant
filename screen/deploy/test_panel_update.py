@@ -32,12 +32,15 @@ class UpdaterTests(unittest.TestCase):
             source.mkdir()
             (source / "panel.py").write_text("print('new')\n")
             (source / "test_ui_offscreen.py").write_text("pass\n")
+            (source / "config.example.json").write_text('{"new_option": true}')
             work = root / "work"
             work.mkdir()
             with patch.object(updater, "APP", old), patch.object(updater, "command", return_value=""):
                 candidate = updater.stage(source, work)
                 self.assertEqual((candidate / "panel.py").read_text(), "print('new')\n")
                 self.assertFalse((candidate / "obsolete.py").exists())
+                self.assertEqual((candidate / "config.example.json").read_text(),
+                                 '{"new_option": true}')
                 self.assertEqual((candidate / "config.json").read_text(),
                                  '{"camera_entities": ["camera.actual"]}')
 
