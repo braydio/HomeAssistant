@@ -1,0 +1,27 @@
+name: Native Qt panel tests
+
+on:
+  pull_request:
+    paths:
+      - "screen/ha-minipanel/**"
+      - ".github/workflows/native-panel.yml"
+  workflow_dispatch:
+
+jobs:
+  native-panel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system Qt5 bindings
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-pyqt5
+      - name: Compile Python sources
+        run: /usr/bin/python3 -m compileall -q screen/ha-minipanel
+      - name: Core and offscreen UI tests
+        working-directory: screen/ha-minipanel
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          /usr/bin/python3 -m unittest test_layout_model test_colors test_core test_ha_client test_health test_ui_offscreen
