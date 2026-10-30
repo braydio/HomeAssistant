@@ -98,8 +98,9 @@ def fetch_head():
 
 def hashes(directory):
     """Only managed top-level Python files; no local configuration or secrets."""
+    managed = [*directory.glob("*.py"), directory / "config.example.json"]
     return {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in directory.glob("*.py") if p.is_file() and not p.is_symlink()}
+            for p in managed if p.is_file() and not p.is_symlink()}
 
 
 def stage(source, parent):
@@ -107,7 +108,9 @@ def stage(source, parent):
     shutil.copytree(APP, candidate, symlinks=False)
     for f in candidate.glob("*.py"):
         f.unlink()
-    for f in source.glob("*.py"):
+    for f in [*source.glob("*.py"), source / "config.example.json"]:
+        if not f.exists():
+            continue
         if f.is_symlink():
             raise RuntimeError("Refusing a symlinked source: " + f.name)
         shutil.copy2(f, candidate / f.name)
