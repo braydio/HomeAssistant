@@ -121,3 +121,5 @@ Upstream API references:
 ### v2.1 hardware validation status
 
 The camera-drawer / colour-wheel redesign is prepared in source and covered by new offscreen assertions, but has **not** been deployed or finger-tested on the Pi Zero 2 W here. The previous v2.0 RSS/CPU figures in `docs/PANEL_PERFORMANCE.md` are historical baselines, **not** v2.1 measurements. Confirm idle memory, snapshot time, interactions, and a long soak before replacing the running autostart. No Home Assistant service, entity or token configuration is modified by the UI patch.
+
+<!-- CI smoke check: native Qt panel-only PRs auto-merge after verified tests; no runtime effect. -->
