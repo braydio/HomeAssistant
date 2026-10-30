@@ -995,7 +995,8 @@ class Panel(QMainWindow):
 
     def set_theme(self, theme):
         self.current_theme = theme; p = PALETTES[theme]
-        # QSS only: flat colours, no gradients, animation or shader-heavy effects.
+        # Flat QSS: no blur, translucency effects, transitions or periodic repaint.
+        # Only the camera drawer uses a constant alpha fill over its snapshot.
         self.setStyleSheet('''
         QWidget#Root { background: %(bg)s; color: %(text)s; }
         QWidget { color: %(text)s; font-family: 'DejaVu Sans', sans-serif; font-size: 15px; }
@@ -1004,17 +1005,38 @@ class Panel(QMainWindow):
         QLabel[role="rowTitle"] { font-size: 17px; font-weight: 600; }
         QLabel[role="overline"] { font-size: 12px; font-weight: 700; color: %(muted)s; }
         QLabel[role="small"] { font-size: 13px; color: %(muted)s; }
-        QLabel[role="cameraPlaceholder"] { font-size: 16px; color: %(muted)s; }
-        QFrame#Card, QFrame#Nav, QFrame#LightRow { background: %(card)s; border: 1px solid %(border)s; border-radius: 14px; }
+        QLabel[role="cameraPlaceholder"] { font-size: 16px; color: #AABFC4; }
+        QLabel#CameraCanvas { background: #0B161D; border: 2px solid #39525B; border-radius: 16px; }
+        QLabel[role="cameraCaption"] { color: #F2F8F6; background: rgba(10, 23, 30, 190);
+                                       border: 1px solid #4D6F75; border-radius: 12px;
+                                       padding: 8px 14px; font-size: 13px; }
+        QFrame#Card, QFrame#Nav, QFrame#LightRow {
+            background: %(card)s; border: 1px solid %(border)s; border-radius: 16px;
+        }
         QFrame#LightRow { border-radius: 12px; }
-        QPushButton { border: 0; border-radius: 12px; background: %(card2)s; color: %(text)s; padding: 2px 12px; font-size: 15px; font-weight: 600; }
+        QFrame#Nav { background: %(card)s; border-radius: 14px; }
+        QFrame#Nav[camera="true"], QFrame#CameraControls {
+            background: rgba(10, 23, 30, 208); border: 1px solid #4D6F75; border-radius: 14px;
+        }
+        QFrame#CameraControls QLabel { color: #DFEFEC; }
+        QPushButton {
+            border: 1px solid transparent; border-radius: 12px; background: %(card2)s;
+            color: %(text)s; padding: 2px 12px; font-size: 15px; font-weight: 600;
+        }
+        QPushButton:pressed { border: 1px solid %(accent)s; }
         QPushButton[kind="primary"] { background: %(accent)s; color: %(bg)s; }
         QPushButton[kind="danger"] { background: %(danger)s; color: #FFFFFF; }
+        QPushButton[kind="nav"] { background: transparent; }
         QPushButton[active="true"] { background: %(accent)s; color: %(bg)s; }
-        QPushButton:disabled { color: %(muted)s; }
+        QFrame#Nav[camera="true"] QPushButton[kind="nav"] { color: #EBF4F1; }
+        QFrame#Nav[camera="true"] QPushButton[active="true"] { color: #0A1720; }
+        QFrame#CameraControls QPushButton { color: #F0F7F4; background: #28414B; }
+        QFrame#CameraControls QPushButton[kind="primary"] { background: #85DCC2; color: #0A1720; }
+        QPushButton:disabled { color: %(muted)s; background: %(card)s; }
         QSlider::groove:horizontal { background: %(border)s; height: 8px; border-radius: 4px; }
         QSlider::sub-page:horizontal { background: %(accent)s; border-radius: 4px; }
         QSlider::handle:horizontal { background: %(text)s; width: 26px; margin: -9px 0; border-radius: 13px; }
+        QSlider:disabled::handle:horizontal { background: %(muted)s; }
         QScrollArea { background: transparent; border: none; }
         QScrollBar:vertical { background: transparent; width: 0px; }
         ''' % p)
