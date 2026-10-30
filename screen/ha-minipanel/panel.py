@@ -33,7 +33,7 @@ from state_store import StateStore, age_text
 from views import (LightRow, RoomRow, RoomTile, ColorEditor, ColorsView, label, card, layout_v, button,
                    friendly, available, set_kind, repolish, HIT)
 
-VERSION = '2.0.0'
+VERSION = '2.1.0'
 ROOT = Path(__file__).resolve().parent
 CONF_DIR = Path.home() / '.config' / 'ha-minipanel'
 WEATHER = {  # HA weather condition -> (glyph, label)
@@ -45,8 +45,8 @@ WEATHER = {  # HA weather condition -> (glyph, label)
 }
 SAFE = 8  # every control stays at least this far inside the touch band
 PALETTES = {
-    'dark': {'bg': '#0D121B', 'card': '#182333', 'card2': '#202D41', 'text': '#F5F8FC', 'muted': '#98AABD', 'accent': '#75A9FF', 'border': '#29374A', 'danger': '#C4515A'},
-    'light': {'bg': '#F5F7FB', 'card': '#FFFFFF', 'card2': '#EAF0F8', 'text': '#142238', 'muted': '#62748A', 'accent': '#2563EB', 'border': '#DFE7F0', 'danger': '#C03A44'},
+    'dark': {'bg': '#0A1720', 'card': '#152733', 'card2': '#213844', 'text': '#F0F7F4', 'muted': '#9EB8BB', 'accent': '#85DCC2', 'border': '#304852', 'danger': '#C8676B'},
+    'light': {'bg': '#EFF3EF', 'card': '#FFFFFF', 'card2': '#E1ECE8', 'text': '#19342F', 'muted': '#5D7774', 'accent': '#2B9179', 'border': '#CCDBD5', 'danger': '#BD4F5C'},
 }
 # Lights page sub-views (QStackedWidget indexes)
 V_ROOMS, V_ROOM, V_COLOR, V_COLORS, V_EDIT, V_EDITROOM, V_MOVE = range(7)
@@ -93,7 +93,8 @@ class Panel(QMainWindow):
         self.layout = None; self.room_meta = {}; self.editing = False
         self.current_room = None; self.edit_room_id = None; self.move_eid = None; self.color_return = V_ROOMS
         self.reset_pending = False; self.fail_count = 0; self.notice_token = 0
-        self.active_camera = None; self.cam_gen = 0; self.cam_paused = False; self.preview_image = None
+        self.active_camera = None; self.cam_gen = 0; self.cam_paused = False
+        self.preview_image = None; self.camera_source = None; self.camera_controls_expanded = False
         self.forecast_next = None; self.forecast_at = -1e9; self.last_weather = ''
         self.setWindowTitle('Home Panel | Native Qt')
         self.W, self.H = size
@@ -138,6 +139,14 @@ class Panel(QMainWindow):
     # --- UI construction -----------------------------------------------------------------------------
     def build_ui(self):
         root = QWidget(); root.setObjectName('Root'); self.setCentralWidget(root)
+        # A full-screen, display-only image behind the three layout bands. Only
+        # the middle band's controls receive touch events.
+        self.camera_view = label('No camera available', 'cameraPlaceholder', wrap=True)
+        self.camera_view.setParent(root); self.camera_view.setObjectName('CameraCanvas')
+        self.camera_view.setAlignment(Qt.AlignCenter)
+        self.camera_view.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.camera_view.setGeometry(6, 6, max(1, self.W - 12), max(1, self.H - 12))
+        self.camera_view.hide()
         top, bot = self.top, self.bot
         page = layout_v(root, (0, 0, 0, 0), 0)
         # display-only header
@@ -150,8 +159,11 @@ class Panel(QMainWindow):
         centre.addStretch(1); centre.addWidget(self.top_greeting); centre.addWidget(self.top_summary); centre.addStretch(1)
         right = QVBoxLayout(); right.setSpacing(2)
         self.theme_status = label('AUTO', 'small'); self.health_status = label('', 'small')
-        right.addStretch(1); right.addWidget(label('HOME PANEL', 'overline')); right.addWidget(self.theme_status)
+        self.brand_label = label('HOME PANEL', 'overline')
+        right.addStretch(1); right.addWidget(self.brand_label); right.addWidget(self.theme_status)
         right.addWidget(self.health_status); right.addStretch(1)
+        self.header_labels = (self.clock, self.date_label, self.top_greeting, self.top_summary,
+                              self.brand_label, self.theme_status, self.health_status)
         tl.addLayout(left, 2); tl.addLayout(centre, 3); tl.addLayout(right, 1)
         # interactive band
         mid = QWidget(); mid.setFixedHeight(bot - top)
@@ -159,16 +171,22 @@ class Panel(QMainWindow):
         # display-only footer
         botw = QWidget(); botw.setFixedHeight(self.H - bot); bl = QVBoxLayout(botw); bl.setContentsMargins(24, 8, 24, 8); bl.setSpacing(3)
         self.bottom_status = label('Loading weather…', 'heading'); self.bottom_detail = label('', 'small')
-        bl.addStretch(1); bl.addWidget(self.bottom_status); bl.addWidget(self.bottom_detail); bl.addStretch(1)
+        self.camera_stamp = label('Snapshot · not live video', 'cameraCaption', wrap=True)
+        self.camera_stamp.setAlignment(Qt.AlignCenter); self.camera_stamp.hide()
+        bl.addStretch(1); bl.addWidget(self.bottom_status); bl.addWidget(self.bottom_detail)
+        bl.addWidget(self.camera_stamp); bl.addStretch(1)
         page.addWidget(topw); page.addWidget(mid); page.addWidget(botw)
         self.stack = QStackedWidget(); outer.addWidget(self.stack, 1)
         self.make_home(); self.make_lights(); self.make_cameras(); self.make_settings()
-        navbar = QFrame(); navbar.setObjectName('Nav'); nav = QHBoxLayout(navbar)
+        self.navbar = QFrame(); self.navbar.setObjectName('Nav'); nav = QHBoxLayout(self.navbar)
         nav.setContentsMargins(5, 3, 5, 3); nav.setSpacing(6)
         self.nav_buttons = []
         for idx, name in enumerate(('Home', 'Lights', 'Cameras')):
-            b = button(name, lambda checked=False, n=idx: self.switch_page(n), 'nav'); nav.addWidget(b, 1); self.nav_buttons.append(b)
-        outer.addWidget(navbar)
+            b = button(name, lambda checked=False, n=idx: self.switch_page(n), 'nav')
+            nav.addWidget(b, 1); self.nav_buttons.append(b)
+        navdock = QHBoxLayout(); navdock.setContentsMargins(0, 0, 0, 0)
+        navdock.addStretch(1); navdock.addWidget(self.navbar, 1); navdock.addStretch(1)
+        outer.addLayout(navdock)
         self.update_nav()
 
     def make_scroll(self):
@@ -585,24 +603,52 @@ class Panel(QMainWindow):
 
     # --- cameras ----------------------------------------------------------------------------------------
     def make_cameras(self):
-        page = QWidget(); h = QHBoxLayout(page); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(10)
-        view = card(); inner = layout_v(view, (10, 8, 10, 8), 4)
-        self.camera_view = label('No camera available', 'cameraPlaceholder', wrap=True)
-        self.camera_view.setAlignment(Qt.AlignCenter)
-        self.camera_view.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
-        inner.addWidget(self.camera_view, 1)
-        self.camera_stamp = label('', 'small', wrap=False); inner.addWidget(self.camera_stamp)
-        h.addWidget(view, 3)
+        # Full-bleed snapshot is rendered by camera_view behind the layout.
+        # Only this collapsible drawer and the compact nav consume touch space.
+        page = QWidget(); h = QHBoxLayout(page)
+        h.setContentsMargins(0, 0, 0, 0); h.setSpacing(0)
+        h.addStretch(1)
         side = QVBoxLayout(); side.setSpacing(6)
-        side.addWidget(label('CAMERAS', 'overline'))
-        cscroll, self.camera_choice = self.make_scroll(); side.addWidget(cscroll, 1)
+        self.camera_toggle = button('Camera controls', self.toggle_camera_controls, 'secondary')
+        self.camera_toggle.setFixedWidth(166)
+        side.addWidget(self.camera_toggle, 0, Qt.AlignRight)
+        self.camera_controls = card('CameraControls')
+        self.camera_controls.setFixedWidth(228)
+        inner = layout_v(self.camera_controls, (10, 8, 10, 10), 6)
+        inner.addWidget(label('SELECT CAMERA', 'overline'))
+        cscroll, self.camera_choice = self.make_scroll(); inner.addWidget(cscroll, 1)
+        actions = QHBoxLayout(); actions.setSpacing(6)
         self.refresh_btn = button('Refresh', lambda: self.poll_camera(True), 'primary')
         self.pause_btn = button('Pause', self.toggle_pause, 'secondary')
-        side.addWidget(self.refresh_btn); side.addWidget(self.pause_btn)
-        sw = QWidget(); sw.setLayout(side); sw.setFixedWidth(210); h.addWidget(sw)
+        actions.addWidget(self.refresh_btn, 1); actions.addWidget(self.pause_btn, 1)
+        inner.addLayout(actions)
+        side.addWidget(self.camera_controls, 1)
+        side.addStretch(1)
+        h.addLayout(side)
         self.stack.addWidget(page)
         self.camera_buttons = {}
+        self.camera_controls.hide()
         self.render_no_camera()
+
+    def toggle_camera_controls(self):
+        self.camera_controls_expanded = not self.camera_controls_expanded
+        self.camera_controls.setVisible(self.camera_controls_expanded)
+        self.camera_toggle.setText('Hide controls' if self.camera_controls_expanded else 'Camera controls')
+        set_kind(self.camera_toggle, 'primary' if self.camera_controls_expanded else 'secondary')
+
+    def scale_camera(self):
+        """Keep one bounded source and rescale only on new snapshots / resize."""
+        if self.camera_source is None or self.camera_source.isNull(): return
+        size = self.camera_view.contentsRect().size()
+        if size.width() < 1 or size.height() < 1: return
+        self.preview_image = self.camera_source.scaled(size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.camera_view.setPixmap(self.preview_image)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'camera_view'):
+            self.camera_view.setGeometry(6, 6, max(1, self.width() - 12), max(1, self.height() - 12))
+            self.scale_camera()
 
     def camera_ids(self):
         want = self.config['camera_entities']
@@ -612,8 +658,9 @@ class Panel(QMainWindow):
         return []
 
     def render_no_camera(self):
-        self.camera_view.setText('No camera available\n\nHome Assistant has no camera entity configured for this panel.')
-        self.camera_stamp.setText('Manual refresh only · not live video')
+        self.free_preview()
+        self.camera_view.setText('No camera available\n\nNo camera entity is configured for this panel.')
+        self.camera_stamp.setText('No camera configured · snapshots only')
         self.refresh_btn.setEnabled(False); self.pause_btn.setEnabled(False)
 
     def populate_cameras(self):
@@ -646,8 +693,8 @@ class Panel(QMainWindow):
         set_kind(self.pause_btn, 'primary' if self.cam_paused else 'secondary')
 
     def free_preview(self):
-        self.preview_image = None
-        self.camera_view.clear() if self.camera_ids() else None
+        self.camera_source = None; self.preview_image = None
+        self.camera_view.clear()
 
     def poll_camera(self, manual=False):
         if self.page_index != PAGE_CAMERAS or not self.active_camera or not self.online: return
@@ -666,9 +713,8 @@ class Panel(QMainWindow):
             return  # stale result: page changed or another camera selected
         if img is None:
             self.camera_view.setText('Demo mode: no snapshot'); return
-        pix = QPixmap.fromImage(img)
-        self.preview_image = pix.scaled(self.camera_view.size(), Qt.KeepAspectRatio, Qt.FastTransformation)
-        self.camera_view.setPixmap(self.preview_image)
+        self.camera_source = QPixmap.fromImage(img)
+        self.scale_camera()
         self.camera_stamp.setText(f'{friendly(self.states.get(eid, {"entity_id": eid}))} · {datetime.now():%-I:%M:%S %p} · not live')
 
     # --- settings ---------------------------------------------------------------------------------------
@@ -726,13 +772,23 @@ class Panel(QMainWindow):
     def switch_page(self, i):
         leaving_cameras = self.page_index == PAGE_CAMERAS and i != PAGE_CAMERAS
         self.page_index = i; self.stack.setCurrentIndex(i); self.update_nav()
+        camera_mode = i == PAGE_CAMERAS
+        for w in self.header_labels: w.setVisible(not camera_mode)
+        self.bottom_status.setVisible(not camera_mode)
+        self.bottom_detail.setVisible(not camera_mode)
+        self.camera_stamp.setVisible(camera_mode)
+        self.camera_view.setVisible(camera_mode)
+        if camera_mode: self.camera_view.lower()
+        self.navbar.setMaximumWidth(450 if camera_mode else 16777215)
+        self.navbar.setProperty('camera', 'true' if camera_mode else 'false')
+        repolish(self.navbar)
         if leaving_cameras:
-            self.cam_gen += 1; self.camera_timer.stop(); self.preview_image = None; self.camera_view.clear()
+            self.cam_gen += 1; self.camera_timer.stop(); self.free_preview()
             if not self.camera_ids(): self.render_no_camera()
             else: self.camera_view.setText('Tap Refresh to load a snapshot.')
         if i == PAGE_LIGHTS:
             if not self.editing and self.lights_views.currentIndex() not in (V_COLORS,): self.close_room()
-        if i == PAGE_CAMERAS and self.camera_ids():
+        if camera_mode and self.camera_ids():
             self.camera_view.setText('Loading snapshot…')
             self.poll_camera(True)
             if self.camera_auto: self.camera_timer.start(self.config['snapshot_seconds'] * 1000)
