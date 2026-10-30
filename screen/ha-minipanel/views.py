@@ -1,6 +1,9 @@
 """Reusable Qt Widgets for the panel. Every interactive widget here is at least 44 px tall and is only ever
 placed inside the live touch band by panel.py."""
+import math
+
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QColor, QImage, QPainter, QPen
 from PyQt5.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget)
 
 import colors as C
@@ -200,6 +203,90 @@ def kelvin_rgb(k):
     return (255, 190, 120) if k < 3500 else ((255, 245, 235) if k < 5000 else (200, 225, 255))
 
 
+
+class ColorWheel(QWidget):
+    """Cached HSV disc: hue follows angle, saturation follows radius.
+
+    Touch moves update a *local* selection only. The caller sends a Home Assistant
+    command exclusively when its Apply button is pressed.
+    """
+    SIZE = 148
+    RADIUS = 71
+
+    def __init__(self, callback):
+        super().__init__()
+        self.callback = callback
+        self.setFixedSize(self.SIZE, self.SIZE)
+        self.setToolTip('Pick hue around the wheel and saturation from centre to edge. Tap Apply to send.')
+        self.setCursor(Qt.CrossCursor)
+        self.setAccessibleName('Hue and saturation color wheel')
+        self._hue, self._sat = 0, 255
+        self._dragging = False
+        self._disc = QImage(self.SIZE, self.SIZE, QImage.Format_ARGB32)
+        self._disc.fill(Qt.transparent)
+        centre = (self.SIZE - 1) / 2
+        for y in range(self.SIZE):
+            for x in range(self.SIZE):
+                dx, dy = x - centre, y - centre
+                radius = math.hypot(dx, dy)
+                if radius <= self.RADIUS:
+                    hue = int((math.degrees(math.atan2(dx, -dy)) + 360) % 360)
+                    sat = min(255, int(radius / self.RADIUS * 255))
+                    self._disc.setPixelColor(x, y, QColor.fromHsv(hue, sat, 255))
+
+    def set_rgb(self, rgb):
+        h, s, _v, _a = QColor(*C.clamp_rgb(rgb)).getHsv()
+        self._hue, self._sat = max(0, h), s
+        self.update()
+
+    def _choose(self, pos):
+        centre = (self.SIZE - 1) / 2
+        dx, dy = pos.x() - centre, pos.y() - centre
+        radius = math.hypot(dx, dy)
+        self._hue = round((math.degrees(math.atan2(dx, -dy)) + 360) % 360) % 360
+        self._sat = min(255, round(min(radius, self.RADIUS) / self.RADIUS * 255))
+        c = QColor.fromHsv(self._hue, self._sat, 255)
+        self.update()
+        self.callback((c.red(), c.green(), c.blue()))
+
+    def mousePressEvent(self, event):
+        if self.isEnabled() and event.button() == Qt.LeftButton:
+            self._dragging = True
+            self._choose(event.pos())
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._dragging and self.isEnabled():
+            self._choose(event.pos())
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self._dragging:
+            self._dragging = False
+            self._choose(event.pos())
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.drawImage(0, 0, self._disc)
+        rad = self._sat / 255 * self.RADIUS
+        theta = math.radians(self._hue)
+        centre = (self.SIZE - 1) / 2
+        x, y = round(centre + rad * math.sin(theta)), round(centre - rad * math.cos(theta))
+        p.setPen(QPen(QColor('#14232B'), 3))
+        p.setBrush(QColor.fromHsv(self._hue, self._sat, 255))
+        p.drawEllipse(x - 6, y - 6, 12, 12)
+        p.setPen(QPen(QColor('#FFFFFF'), 2))
+        p.setBrush(Qt.NoBrush)
+        p.drawEllipse(x - 8, y - 8, 16, 16)
+
+
 class ColorEditor(QWidget):
     """The single in-band colour editor, reused for one light or a whole panel room."""
 
@@ -214,6 +301,10 @@ class ColorEditor(QWidget):
         v.addLayout(head)
         self.info = label('', 'small')
         v.addWidget(self.info)
+        body = QHBoxLayout(); body.setSpacing(14)
+        self.wheel = ColorWheel(lambda rgb: self.pick('Custom', 'rgb', rgb, from_wheel=True))
+        body.addWidget(self.wheel, 0, Qt.AlignVCenter)
+        right = QVBoxLayout(); right.setSpacing(8)
         grid = QGridLayout(); grid.setHorizontalSpacing(8); grid.setVerticalSpacing(6)
         self.chips = []
         names = [(n, c, 'rgb') for n, c in C.SWATCHES] + [(n, kelvin_rgb(k), 'temp') for n, k in C.TEMPS]
@@ -225,7 +316,7 @@ class ColorEditor(QWidget):
             grid.addWidget(chip, i // 5, i % 5)
         for c in range(5):
             grid.setColumnStretch(c, 1)
-        v.addLayout(grid)
+        right.addLayout(grid)
         row = QHBoxLayout(); row.setSpacing(10)
         row.addWidget(label('Brightness', 'small', wrap=False))
         self.slider = QSlider(Qt.Horizontal); self.slider.setRange(1, 100); self.slider.setValue(100)
@@ -233,8 +324,10 @@ class ColorEditor(QWidget):
         row.addWidget(self.slider, 1)
         self.apply_btn = button('Apply', self.apply, 'primary'); self.apply_btn.setFixedWidth(130)
         row.addWidget(self.apply_btn)
-        v.addLayout(row)
-        v.addStretch(1)
+        right.addLayout(row)
+        right.addStretch(1)
+        body.addLayout(right, 1)
+        v.addLayout(body, 1)
 
     def _touch(self):
         self.bri_touched = True
@@ -245,6 +338,11 @@ class ColorEditor(QWidget):
         for c in self.chips:
             c.set_selected(False)
         self.slider.setValue(100)
+        if len(self.ids) == 1:
+            st = self.panel.states.get(self.ids[0]) or {}
+            rgb = (st.get('attributes') or {}).get('rgb_color')
+            if rgb:
+                self.wheel.set_rgb(rgb)
         self.refresh()
 
     def caps(self):
@@ -260,6 +358,7 @@ class ColorEditor(QWidget):
         for c in self.chips:
             c.setEnabled(any_rgb if c.kind == 'rgb' else any_temp)
         self.slider.setEnabled(any_dim)
+        self.wheel.setEnabled(any_rgb)
         if n == 1 and st[0]:
             style_power(self.power, st[0], online)
         else:
@@ -306,8 +405,10 @@ class ColorEditor(QWidget):
             txt = f'Selected: {self.choice[2]} (' + ('sent' if self.sent else 'not sent yet') + '). ' + f'{self._eligible_count()} of {n} lights will change.'
         return txt
 
-    def pick(self, name, kind, value):
+    def pick(self, name, kind, value, from_wheel=False):
         self.choice = (kind, value, name); self.sent = False
+        if kind == 'rgb' and not from_wheel:
+            self.wheel.set_rgb(value)
         for c in self.chips:
             c.set_selected(c.cname == name)
         self.refresh()
@@ -342,18 +443,25 @@ class ColorsView(QWidget):
         v.addLayout(row)
         self.note = label('Uses the Home Assistant colour helper. These targets are HA groups, not your panel layout.', 'small')
         v.addWidget(self.note)
+        body = QHBoxLayout(); body.setSpacing(12)
+        self.wheel = ColorWheel(lambda rgb: self.pick('Custom', 'rgb', rgb, from_wheel=True))
+        body.addWidget(self.wheel, 0, Qt.AlignVCenter)
+        right = QVBoxLayout(); right.setSpacing(8)
         grid = QGridLayout(); grid.setHorizontalSpacing(6); grid.setVerticalSpacing(6)
         names = [(n, kelvin_rgb(k), 'temp', k) for n, k in C.TEMPS] + [(n, c, 'rgb', c) for n, c in C.SWATCHES[:6]]
         self.chips = []
         for i, (name, rgb, kind, val) in enumerate(names):
             chip = Chip(name, rgb, lambda checked=False, n=name, k=kind, vv=val: self.pick(n, k, vv))
             chip.cname = name; chip.kind = kind; chip.value = val; self.chips.append(chip)
-            grid.addWidget(chip, 0, i)
-        v.addLayout(grid)
+            grid.addWidget(chip, i // 4, i % 4)
+        right.addLayout(grid)
         self.bottom = QHBoxLayout(); self.bottom.setSpacing(8)
-        v.addLayout(self.bottom)
+        right.addLayout(self.bottom)
+        right.addStretch(1)
+        body.addLayout(right, 1)
+        v.addLayout(body, 1)
         self.status = label('', 'small')
-        v.addWidget(self.status); v.addStretch(1)
+        v.addWidget(self.status)
         self.render_bottom()
 
     def clear_bottom(self):
@@ -396,8 +504,10 @@ class ColorsView(QWidget):
     def do_save(self):
         self.panel.save_preset(self.slot); self.set_mode('presets')
 
-    def pick(self, name, kind, value):
+    def pick(self, name, kind, value, from_wheel=False):
         self.choice = (kind, value, name)
+        if kind == 'rgb' and not from_wheel:
+            self.wheel.set_rgb(value)
         for c in self.chips:
             c.set_selected(c.cname == name)
         self.refresh()
@@ -411,6 +521,8 @@ class ColorsView(QWidget):
         self.target.setText(self.panel.color_target() or 'No colour helper')
         for b in (self.prev, self.next):
             b.setEnabled(online and bool(self.panel.color_options()))
+        allowed = online and bool(self.panel.config.get('colors')) and bool(self.panel.color_options())
         for c in self.chips:
-            c.setEnabled(online and bool(self.panel.config.get('colors')))
+            c.setEnabled(allowed)
+        self.wheel.setEnabled(allowed)
         self.render_bottom()
