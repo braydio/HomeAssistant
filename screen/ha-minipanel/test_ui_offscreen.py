@@ -163,6 +163,52 @@ class UITests(unittest.TestCase):
         p, _ = self.make(); self.assertIn('No camera available', p.camera_view.text())
         self.assertFalse(p.refresh_btn.isEnabled())
 
+    def test_camera_full_display_drawer_and_nav_stay_touch_safe(self):
+        from PyQt5.QtCore import Qt
+        p, _ = self.make()
+        p.switch_page(P.PAGE_CAMERAS); pump(self.app)
+        self.assertTrue(p.camera_view.isVisibleTo(p))
+        self.assertEqual(p.camera_view.geometry(), QRect(6, 6, p.width() - 12, p.height() - 12))
+        self.assertTrue(p.camera_view.testAttribute(Qt.WA_TransparentForMouseEvents))
+        self.assertFalse(p.camera_controls.isVisibleTo(p))
+        self.assertLessEqual(p.navbar.width(), 450)
+        self.assert_in_band(p, 'camera collapsed')
+        p.toggle_camera_controls(); pump(self.app)
+        self.assertTrue(p.camera_controls.isVisibleTo(p))
+        self.assertEqual(p.camera_toggle.text(), 'Hide controls')
+        self.assert_in_band(p, 'camera expanded')
+        p.toggle_camera_controls(); pump(self.app)
+        self.assertFalse(p.camera_controls.isVisibleTo(p))
+        p.switch_page(P.PAGE_HOME); pump(self.app)
+        self.assertFalse(p.camera_view.isVisibleTo(p))
+        self.assertTrue(p.clock.isVisibleTo(p))
+
+    def test_camera_keeps_bounded_source_and_releases_it_on_exit(self):
+        from PyQt5.QtGui import QImage
+        p, _ = self.make(); p.switch_page(P.PAGE_CAMERAS)
+        p.active_camera = 'camera.example'
+        p.camera_ready('camera.example', p.cam_gen, QImage(640, 360, QImage.Format_RGB32))
+        self.assertIsNotNone(p.camera_source)
+        self.assertIsNotNone(p.preview_image)
+        p.switch_page(P.PAGE_LIGHTS)
+        self.assertIsNone(p.camera_source)
+        self.assertIsNone(p.preview_image)
+
+    def test_colour_wheels_are_preview_only_until_apply(self):
+        p, _ = self.make(); p.client.demo_calls.clear()
+        p.open_color(['light.kitchen_left'])
+        p.editor.wheel._choose(QPoint(120, 60))
+        self.assertEqual(p.client.demo_calls, [])
+        self.assertEqual(p.editor.choice[0], 'rgb')
+        self.assertTrue(p.editor.apply_btn.isEnabled())
+        p.editor.apply(); pump(self.app, 20)
+        self.assertTrue(any(x[0:2] == ('light', 'turn_on') and 'rgb_color' in x[3]
+                            for x in p.client.demo_calls))
+        p.client.demo_calls.clear()
+        p.colors_view.wheel._choose(QPoint(120, 60))
+        self.assertEqual(p.client.demo_calls, [])
+        self.assertEqual(p.colors_view.choice[0], 'rgb')
+
     def test_stale_camera_result_discarded(self):
         p, _ = self.make(); p.active_camera = 'camera.x'; p.page_index = P.PAGE_HOME
         from PyQt5.QtGui import QImage
