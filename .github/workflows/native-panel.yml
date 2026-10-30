@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "screen/ha-minipanel/**"
+      - "screen/deploy/**"
       - ".github/workflows/native-panel.yml"
   workflow_dispatch:
 
@@ -19,6 +20,11 @@ jobs:
           sudo apt-get install -y --no-install-recommends python3-pyqt5
       - name: Compile Python sources
         run: /usr/bin/python3 -m compileall -q screen/ha-minipanel
+      - name: Check updater compilation and installer syntax
+        run: |
+          /usr/bin/python3 -m py_compile screen/deploy/panel-update.py
+          bash -n screen/deploy/install.sh
+          /usr/bin/python3 -m unittest discover -s screen/deploy -p "test_*.py"
       - name: Core and offscreen UI tests
         working-directory: screen/ha-minipanel
         env:
