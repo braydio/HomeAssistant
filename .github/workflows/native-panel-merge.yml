@@ -19,10 +19,10 @@ jobs:
     steps:
       - name: Verify completed test run and merge eligible owner PR
         env:
-          GH_TOKEN: \${{ github.token }}
-          REPOSITORY: \${{ github.repository }}
-          TEST_SHA: \${{ github.event.workflow_run.head_sha }}
-          PRS_JSON: \${{ toJson(github.event.workflow_run.pull_requests) }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TEST_SHA: ${{ github.event.workflow_run.head_sha }}
+          PRS_JSON: ${{ toJson(github.event.workflow_run.pull_requests) }}
         shell: bash
         run: |
           set -euo pipefail
