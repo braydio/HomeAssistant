@@ -1,0 +1,12 @@
+[Unit]
+Description=Watch for new native Qt panel code on GitHub main
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=3min
+RandomizedDelaySec=20s
+AccuracySec=15s
+Unit=ha-minipanel-update.service
+
+[Install]
+WantedBy=timers.target

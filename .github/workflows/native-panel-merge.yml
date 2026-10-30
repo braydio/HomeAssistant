@@ -1,0 +1,72 @@
+name: Merge verified native Qt panel PRs
+
+# This job is defined on main and never checks out or executes PR code.
+# Only the repository owner's same-repo, panel-only, non-draft PRs qualify.
+on:
+  workflow_run:
+    workflows: ["Native Qt panel tests"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  guarded-merge:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify completed test run and merge eligible owner PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TEST_SHA: ${{ github.event.workflow_run.head_sha }}
+          PRS_JSON: ${{ toJson(github.event.workflow_run.pull_requests) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Workflow-run is unprivileged PR code -> privileged, so verify ALL
+          # conditions through the GitHub API and never execute PR content.
+          printf '%s\n' "$PRS_JSON" | jq -r '.[].number' | while read -r pr; do
+            [ -n "$pr" ] || continue
+            details="$(gh api "repos/$REPOSITORY/pulls/$pr")"
+            head_sha="$(jq -r '.head.sha' <<<"$details")"
+            base="$(jq -r '.base.ref' <<<"$details")"
+            author="$(jq -r '.user.login' <<<"$details")"
+            head_repo="$(jq -r '.head.repo.full_name' <<<"$details")"
+            status="$(jq -r '.state' <<<"$details")"
+            draft="$(jq -r '.draft' <<<"$details")"
+            if [ "$head_sha" != "$TEST_SHA" ] || [ "$base" != "main" ] ||
+               [ "$author" != "braydio" ] || [ "$head_repo" != "$REPOSITORY" ] ||
+               [ "$status" != "open" ] || [ "$draft" != "false" ]; then
+              echo "PR #$pr not eligible (new commits, draft, or not an owner's panel PR)"
+              continue
+            fi
+
+            # Enforce a strict changed-file allowlist. Changes to workflow files,
+            # Home Assistant YAML, DietPi startup, and updater scripts require a
+            # manual merge and must never bypass review via this workflow.
+            files="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr/files?per_page=100" --jq '.[].filename')"
+            [ -n "$files" ] || continue
+            allowed=true
+            while IFS= read -r file; do
+              case "$file" in
+                screen/ha-minipanel/*) ;;
+                *) echo "PR #$pr has a non-panel change: $file"; allowed=false ;;
+              esac
+            done <<<"$files"
+            if [ "$allowed" != true ]; then continue; fi
+
+            # Merge is SHA-pinned, so stale successful runs cannot merge
+            # a newer untested head. The API applies branch protections too.
+            merge_state="$(jq -r '.mergeable_state' <<<"$details")"
+            if [ "$merge_state" != "clean" ]; then
+              echo "PR #$pr merge state is '$merge_state'; no automatic merge"
+              continue
+            fi
+            gh api -X PUT "repos/$REPOSITORY/pulls/$pr/merge" \
+              -f sha="$head_sha" -f merge_method=squash \
+              -f commit_title="Native Qt panel: PR #$pr (verified)"
+            echo "Merged verified native Qt panel PR #$pr into main"
+          done

@@ -2,19 +2,19 @@
 
 A functioning proof-of-concept for **Raspberry Pi Zero 2 W + 7-inch HDMI touchscreen**. The Pi 4 continues hosting Home Assistant; the Zero runs a lightweight native Python/Qt Widgets client. **No Chromium or full Home Assistant frontend is loaded.**
 
-## What it does (v2)
+## What it does (v2.1, proposed native-panel UI update)
 
 Three tabs in the touch band – **Home | Lights | Cameras** – and Settings from Home (with a Back button).
 
 - **Home**: four favourite room tiles (aggregate state + Turn on/off), three scenes, **All Off**, Settings.
 - **Lights**: *Rooms* (tap a name to open a room, drag to scroll) and *Colors*.
   - Room view: per-light brightness slider (only if supported), **Color** button, ON/OFF; room header has Color (whole room) and ON/OFF.
-  - **Colour editor** (one reusable in-band widget): capability-driven – on/off and brightness-only lights say so and disable colour; colour-temperature lights get Warm/Daylight clamped to their range; RGB lights get seven named swatches. Chips only *preview*; **Apply** sends one validated `light.turn_on`.
-  - **Colors tab**: HA colour target (‹ ›), swatches, Apply, presets 1–4, Save… (slot → "Overwrite?" confirmation) – all through the existing `script.home_panel_*` scripts and `input_select.home_panel_color_target`.
+  - **Colour editor** (one reusable in-band widget): capability-driven – on/off and brightness-only lights say so and disable colour; colour-temperature lights get Warm/Daylight clamped to their range; RGB lights get seven named swatches **plus an in-band Qt hue/saturation wheel** for supported RGB lights. Wheel motion and chips only *preview*; **Apply** sends validated `light.turn_on` calls.
+  - **Colors tab**: HA colour target (‹ ›), swatches **or custom wheel colour**, Apply, presets 1–4, Save… (slot → "Overwrite?" confirmation) – through the existing `script.home_panel_*` scripts and `input_select.home_panel_color_target`.
   - **Edit layout**: panel-only rearrangement (does *not* change Home Assistant rooms/areas/groups/scenes). Move rooms ▲▼, open a room, **Move to…** another room, reorder lights ▲▼, Done / Cancel / Reset. Saved in `~/.config/ha-minipanel/layout.json`.
-- **Cameras**: one selected camera, manual refresh (optional auto-refresh), bounded decode; honest "No camera available" when HA has none.
+- **Cameras**: full-display snapshot behind a subtle border, with a **collapsible camera selector / Refresh / Pause drawer** and compact navigation within the working touch band. The dead top/bottom touchscreen strips show the picture and a read-only snapshot timestamp. Manual refresh (optional auto-refresh), bounded decode; honest "No camera available" when HA has none. **Still snapshots, not live RTSP video.**
 - **Settings**: Auto/Light/Dark, camera refresh preference, diagnostics (HA state, last update, RSS, MemAvailable, CPU temp, counters, version).
-- **Touch band**: with `touch_band: [112, 442]` the top and bottom strips are display-only (clock, greeting, light summary, weather, offline/stale status). Every control – including nav, Back, Done and Move to… – lives inside the band with an 8 px safety margin.
+- **Touch band**: with `touch_band: [112, 442]` the top and bottom strips are display-only (clock, greeting, light summary, weather, offline/stale status on normal pages, camera image/timestamp on Cameras). Every control – including camera drawer, nav, Back, Done and Move to… – remains inside the band with an 8 px safety margin.
 - **Offline**: the last known values stay on screen marked "Offline · last known", actions are disabled, the footer shows the data age and retry time; retries back off 5→10→30→60 s.
 
 Modules: `panel.py` (bootstrap, pages, polling), `views.py` (widgets), `ha_client.py` (REST + service allowlist), `state_store.py`, `settings.py` (config validation, default rooms), `colors.py`, `layout_model.py`, `camera.py`, `telemetry.py`.
@@ -97,15 +97,16 @@ Pi 4 / DietPi                         Pi Zero 2 W / DietPi
 ```
 
 - Home Assistant state polling: default 20 seconds (one bulk read, filtered to the entities the panel uses).
-- Camera snapshots: manual, or every `snapshot_seconds` **only while the Cameras page is open**.
+- Camera snapshots: manual, or every `snapshot_seconds` **only while the Cameras page is open**. The full-screen view upscales the bounded 640×360 decoded source, never decodes a full-resolution stream. Camera buffers are cleared when leaving the page.
 - Network requests run outside the UI thread.
+- The HSV wheel caches a 148×148 bitmap at construction, updates only a local preview on touch, and performs no colour network writes before Apply.
 - Do not load all live streams or refresh camera snapshots continuously in the background.
 - No HA server containers or integrations are installed on the Zero 2 W.
 - A local private network is assumed. Configure HTTPS if the network cannot be trusted.
 
 ## Test and rollback
 
-1. Run the unit tests listed above.
+1. Run the unit tests listed above, including `QT_QPA_PLATFORM=offscreen python3 -m unittest test_ui_offscreen`. On a real Screen verify expanded and collapsed camera controls, wheel reachability, and no actionable buttons in the dead top/bottom strips.
 2. Launch with `--demo --windowed` and verify every page/theme setting with touch.
 3. Configure URL/token. Test each selected light, one scene, and one camera snapshot.
 4. Benchmark idle RSS/available RAM and interaction lag *on the Zero*, not the Pi 4.
@@ -116,3 +117,7 @@ Upstream API references:
 - https://developers.home-assistant.io/docs/api/rest/
 - https://developers.home-assistant.io/docs/api/websocket/
 - https://www.home-assistant.io/integrations/generic/
+
+### v2.1 hardware validation status
+
+The camera-drawer / colour-wheel redesign is prepared in source and covered by new offscreen assertions, but has **not** been deployed or finger-tested on the Pi Zero 2 W here. The previous v2.0 RSS/CPU figures in `docs/PANEL_PERFORMANCE.md` are historical baselines, **not** v2.1 measurements. Confirm idle memory, snapshot time, interactions, and a long soak before replacing the running autostart. No Home Assistant service, entity or token configuration is modified by the UI patch.
