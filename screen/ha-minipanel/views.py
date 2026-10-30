@@ -285,6 +285,8 @@ class ColorWheel(QWidget):
         p.setPen(QPen(QColor('#FFFFFF'), 2))
         p.setBrush(Qt.NoBrush)
         p.drawEllipse(x - 8, y - 8, 16, 16)
+        if not self.isEnabled():
+            p.fillRect(self.rect(), QColor(10, 23, 30, 135))
 
 
 class ColorEditor(QWidget):
@@ -510,6 +512,11 @@ class ColorsView(QWidget):
             self.wheel.set_rgb(value)
         for c in self.chips:
             c.set_selected(c.cname == name)
+        if kind == 'rgb':
+            r, g, b = C.clamp_rgb(value)
+            self.status.setText(f'Preview: {name} · #{r:02X}{g:02X}{b:02X} · tap Apply colour to send')
+        else:
+            self.status.setText(f'Preview: {name} · {int(value)} K · tap Apply colour to send')
         self.refresh()
 
     def apply(self):
