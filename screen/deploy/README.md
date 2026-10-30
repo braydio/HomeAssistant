@@ -21,7 +21,7 @@ sudo bash ~/ha-panel-bootstrap/screen/deploy/install.sh
 systemctl list-timers ha-minipanel-update.timer
 ```
 
-The installer refuses to touch a device without the expected native Qt program, `config.json`, DietPi `custom.sh`, `git`, system Python and Qt bindings. It only installs the updater script and systemd service/timer; it does not restart the panel or switch kiosk modes. On first poll, unchanged Python files are not redeployed.
+The installer refuses to touch a device without the expected native Qt program, `config.json`, DietPi `custom.sh`, `git`, system Python and Qt bindings. It only installs the updater script and systemd service/timer; it does not restart the panel or switch kiosk modes. On first poll, unchanged managed Python files and example configuration are not redeployed.
 
 To run one scan immediately:
 
@@ -35,7 +35,7 @@ sudo journalctl -u ha-minipanel-update.service -n 80 --no-pager
 1. A **non-draft pull request from braydio in this repository** that changes **only** `screen/ha-minipanel/*` qualifies for unattended merging. It must complete `Native Qt panel tests` successfully, have a fresh tested head SHA and be mergeable under GitHub branch-protection rules. The privileged merge workflow never executes untrusted PR code.
 2. GitHub Actions then merges the tested PR into `main`. This is implemented by `.github/workflows/native-panel-merge.yml`, not GitHub's built-in auto-merge toggle (which is currently disabled).
 3. The Pi's `ha-minipanel-update.timer` checks the public repo after boot and roughly every **three minutes**. A shallow sparse checkout fetches only the native panel directory.
-4. If managed Python sources changed, the updater copies the existing panel to a temporary same-filesystem candidate, keeps the *local* `config.json`, installs Python changes into the candidate, and runs compile + core + Qt offscreen tests on Screen.
+4. If managed Python sources or the harmless `config.example.json` template changed, the updater copies the existing panel to a temporary same-filesystem candidate, keeps the *local* `config.json`, installs Python changes into the candidate, and runs compile + core + Qt offscreen tests on Screen.
 5. With a healthy existing supervisor, it atomically renames the current release to a protected local backup, swaps the candidate into the existing app path, and terminates **only the matching panel xinit process** so DietPi's existing supervisor relaunches it. It verifies that a newly launched Python panel process survives at least 8 seconds.
 6. If the new process fails to start/stay running, the prior app release is restored and restarted. The failed SHA is marked as rejected and is not retried until a new main commit or an explicit `--force` run. The updater retains two previous releases.
 
